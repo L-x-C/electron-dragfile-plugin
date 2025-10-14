@@ -55,14 +55,6 @@ jobs:
     - name: Build native module
       run: npm run build:simple
 
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v4
-      if: always()
-      with:
-        name: ${{ matrix.artifact }}
-        path: electron-dragfile-plugin.node
-        retention-days: 30
-
     - name: Rename binary for platform (Unix)
       if: always() && matrix.os != 'windows-latest'
       run: |
@@ -82,6 +74,14 @@ jobs:
         } else {
           echo "❌ No binary found to rename"
         }
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: ${{ matrix.artifact }}
+        path: ${{ matrix.artifact }}
+        retention-days: 30
 
     - name: Build logs
       if: failure()
@@ -132,8 +132,35 @@ jobs:
         cp artifacts/*.node ./
         ls -la *.node
 
+    - name: Copy binaries to npm directory structure
+      run: |
+        mkdir -p npm/win32-x64-msvc
+        mkdir -p npm/darwin-x64
+        mkdir -p npm/darwin-arm64
+
+        # Copy binaries to npm directories that napi prepublish expects
+        if [ -f "electron-dragfile-plugin.win32-x64-msvc.node" ]; then
+          cp electron-dragfile-plugin.win32-x64-msvc.node npm/win32-x64-msvc/
+        fi
+        if [ -f "electron-dragfile-plugin.darwin-x64.node" ]; then
+          cp electron-dragfile-plugin.darwin-x64.node npm/darwin-x64/
+        fi
+        if [ -f "electron-dragfile-plugin.darwin-arm64.node" ]; then
+          cp electron-dragfile-plugin.darwin-arm64.node npm/darwin-arm64/
+        fi
+
+        echo "Binary structure:"
+        find npm -name "*.node" -exec ls -la {} \;
+
     - name: Prepublish
       run: npm run prepublishOnly
+
+    - name: Verify prepublish results
+      run: |
+        echo "Files after prepublish:"
+        ls -la *.node || echo "No .node files in root"
+        echo "npm directory contents:"
+        find npm -name "*.node" -exec ls -la {} \; || echo "No .node files in npm directory"
 
     - name: Publish to npm
       run: npm publish --access public
