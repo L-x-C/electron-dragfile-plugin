@@ -51,6 +51,6 @@
   "optionalDependencies": {
     "electron-dragfile-plugin-win32-x64-msvc": "1.0.4",
     "electron-dragfile-plugin-darwin-x64": "1.0.4",
-    "electron-dragfile-plugin-linux-x64-gnu": "1.0.4"
+    "electron-dragfile-plugin-darwin-arm64": "1.0.4"
   }
 }

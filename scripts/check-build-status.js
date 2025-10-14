@@ -29,7 +29,7 @@ async function checkBuildStatus() {
 
     console.log('\n🏗️  Build Configuration:');
     console.log('✅ GitHub Actions workflow configured');
-    console.log('✅ Multi-platform builds: Ubuntu, Windows, macOS (Intel/ARM64)');
+    console.log('✅ Multi-platform builds: Windows, macOS (Intel/ARM64)');
     console.log('✅ Auto-publishing on tag push enabled');
     console.log('✅ Error handling with fail-fast disabled');
 

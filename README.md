@@ -5,7 +5,7 @@ A high-performance native Node.js addon built with Rust and napi-rs that detects
 ## ✨ Features
 
 - 🚀 **High Performance**: Built with Rust for maximum performance and low overhead
-- 🌍 **Cross-Platform**: Supports Windows and macOS (Linux planned)
+- 🌍 **Cross-Platform**: Supports Windows and macOS (Intel & Apple Silicon)
 - 📡 **System-Wide Detection**: Monitors drag events across the entire system, not just your app
 - 🔧 **Easy to Use**: Simple JavaScript API with TypeScript support
 - 📦 **NPM Ready**: Published to npm for easy installation
@@ -189,7 +189,6 @@ electron-dragfile-plugin/
 | Windows 10+ (x64) | ✅ Supported | electron-dragfile-plugin.win32-x64-msvc.node |
 | macOS 10.14+ (Intel) | ✅ Supported | electron-dragfile-plugin.darwin-x64.node |
 | macOS 11+ (Apple Silicon) | ✅ Supported | electron-dragfile-plugin.darwin-arm64.node |
-| Linux (x64) | ✅ Supported | electron-dragfile-plugin.linux-x64-gnu.node |
 
 ## 🤝 Contributing
 
