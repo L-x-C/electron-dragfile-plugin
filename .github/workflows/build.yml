@@ -56,9 +56,7 @@ jobs:
       run: npm install
 
     - name: Build native module
-      run: napi build --platform --release --target ${{ matrix.target }}
-      env:
-        CARGO_TARGET_{{ matrix.target }}_LINKER: ${{ matrix.target == 'aarch64-apple-darwin' && 'osx64' || '' }}
+      run: npm run build -- --target ${{ matrix.target }}
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
