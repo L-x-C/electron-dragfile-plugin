@@ -1,6 +1,6 @@
 {
   "name": "electron-dragfile-plugin",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Native addon for detecting file drag events in Electron applications",
   "main": "index.js",
   "napi": {
@@ -48,8 +48,8 @@
     "node": ">= 14"
   },
   "optionalDependencies": {
-    "electron-dragfile-plugin-win32-x64-msvc": "1.0.3",
-    "electron-dragfile-plugin-darwin-x64": "1.0.3",
-    "electron-dragfile-plugin-linux-x64-gnu": "1.0.3"
+    "electron-dragfile-plugin-win32-x64-msvc": "1.0.4",
+    "electron-dragfile-plugin-darwin-x64": "1.0.4",
+    "electron-dragfile-plugin-linux-x64-gnu": "1.0.4"
   }
 }

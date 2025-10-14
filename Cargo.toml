@@ -1,7 +1,7 @@
 [package]
 edition = "2021"
 name = "electron-dragfile-plugin"
-version = "1.0.3"
+version = "1.0.4"
 description = "Native addon for detecting file drag events in Electron applications"
 authors = ["Your Name <your.email@example.com>"]
 license = "MIT"
