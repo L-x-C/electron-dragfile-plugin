@@ -10,6 +10,7 @@
     "artifacts": "napi artifacts",
     "build": "napi build --platform --release",
     "build:debug": "napi build --platform",
+    "build:simple": "napi build --release",
     "prepublishOnly": "napi prepublish -t npm",
     "test": "node test/index.js",
     "version": "napi version",

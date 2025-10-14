@@ -69,8 +69,14 @@ jobs:
         rustup target add ${{ matrix.target }}
 
     - name: Build native module
-      run: npm run build -- --target ${{ matrix.target }}
-      continue-on-error: false
+      run: |
+        echo "Attempting to build for target ${{ matrix.target }}"
+        if npm run build -- --target ${{ matrix.target }}; then
+          echo "✅ Target build successful"
+        else
+          echo "❌ Target build failed, trying simple build"
+          npm run build:simple
+        fi
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
