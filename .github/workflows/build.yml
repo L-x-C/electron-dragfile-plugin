@@ -60,8 +60,28 @@ jobs:
       if: always()
       with:
         name: ${{ matrix.artifact }}
-        path: ${{ matrix.artifact }}
+        path: electron-dragfile-plugin.node
         retention-days: 30
+
+    - name: Rename binary for platform (Unix)
+      if: always() && matrix.os != 'windows-latest'
+      run: |
+        if [ -f "electron-dragfile-plugin.node" ]; then
+          cp electron-dragfile-plugin.node ${{ matrix.artifact }}
+          echo "✅ Binary renamed to ${{ matrix.artifact }}"
+        else
+          echo "❌ No binary found to rename"
+        fi
+
+    - name: Rename binary for platform (Windows)
+      if: always() && matrix.os == 'windows-latest'
+      run: |
+        if (Test-Path "electron-dragfile-plugin.node") {
+          Copy-Item "electron-dragfile-plugin.node" "${{ matrix.artifact }}"
+          echo "✅ Binary renamed to ${{ matrix.artifact }}"
+        } else {
+          echo "❌ No binary found to rename"
+        }
 
     - name: Build logs
       if: failure()
