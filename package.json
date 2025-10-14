@@ -32,12 +32,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/yourusername/electron-dragfile-plugin.git"
+    "url": "git+https://github.com/L-x-C/electron-dragfile-plugin.git"
   },
   "bugs": {
-    "url": "https://github.com/yourusername/electron-dragfile-plugin/issues"
+    "url": "https://github.com/L-x-C/electron-dragfile-plugin/issues"
   },
-  "homepage": "https://github.com/yourusername/electron-dragfile-plugin#readme",
+  "homepage": "https://github.com/L-x-C/electron-dragfile-plugin#readme",
   "files": [
     "index.d.ts",
     "index.js",
