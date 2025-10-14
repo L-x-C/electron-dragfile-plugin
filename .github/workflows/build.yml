@@ -52,21 +52,8 @@ jobs:
     - name: Install dependencies
       run: npm install
 
-    - name: Rust target info
-      run: |
-        echo "Target: ${{ matrix.target }}"
-        rustup target list --installed | grep ${{ matrix.target }} || echo "Target not installed"
-        rustup target add ${{ matrix.target }}
-
     - name: Build native module
-      run: |
-        echo "Attempting to build for target ${{ matrix.target }}"
-        if npm run build -- --target ${{ matrix.target }}; then
-          echo "✅ Target build successful"
-        else
-          echo "❌ Target build failed, trying simple build"
-          npm run build:simple
-        fi
+      run: npm run build:simple
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v4

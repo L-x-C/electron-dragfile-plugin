@@ -26,17 +26,9 @@ serde = { version = "1.0", features = ["derive"] }
 # Static variables
 lazy_static = "1.4"
 
-# Platform-specific dependencies
+# Platform-specific dependencies (minimal for now)
 [target.'cfg(windows)'.dependencies]
-winapi = { version = "0.3", features = [
-    "winuser",
-    "shellapi",
-    "windef",
-    "winbase",
-    "errhandlingapi",
-    "handleapi",
-    "processthreadsapi"
-] }
+# winapi dependencies will be added when implementing real Windows functionality
 
 [target.'cfg(target_os = "macos")'.dependencies]
 cocoa = "0.25"
