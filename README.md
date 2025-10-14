@@ -184,11 +184,12 @@ electron-dragfile-plugin/
 
 ## 🔧 Platform Support
 
-| Platform | Status | Notes |
-|----------|--------|-------|
-| Windows 10+ | ✅ Supported | Full system-wide drag detection |
-| macOS 10.14+ | ✅ Supported | System-wide drag monitoring |
-| Linux | 🚧 Planned | Support planned for future releases |
+| Platform | Status | Binary |
+|----------|--------|--------|
+| Windows 10+ (x64) | ✅ Supported | electron-dragfile-plugin.win32-x64-msvc.node |
+| macOS 10.14+ (Intel) | ✅ Supported | electron-dragfile-plugin.darwin-x64.node |
+| macOS 11+ (Apple Silicon) | ✅ Supported | electron-dragfile-plugin.darwin-arm64.node |
+| Linux (x64) | ✅ Supported | electron-dragfile-plugin.linux-x64-gnu.node |
 
 ## 🤝 Contributing
 
