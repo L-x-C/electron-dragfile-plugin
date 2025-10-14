@@ -1,0 +1,24 @@
+{
+  "name": "electron-dragfile-plugin-example",
+  "version": "1.0.0",
+  "description": "Example Electron app using electron-dragfile-plugin",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev"
+  },
+  "devDependencies": {
+    "electron": "^27.0.0"
+  },
+  "dependencies": {
+    "electron-dragfile-plugin": "file:../"
+  },
+  "keywords": [
+    "electron",
+    "drag",
+    "file",
+    "example"
+  ],
+  "author": "Your Name",
+  "license": "MIT"
+}

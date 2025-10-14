@@ -1,0 +1,48 @@
+[package]
+edition = "2021"
+name = "electron-dragfile-plugin"
+version = "1.0.3"
+description = "Native addon for detecting file drag events in Electron applications"
+authors = ["Your Name <your.email@example.com>"]
+license = "MIT"
+repository = "https://github.com/yourusername/electron-dragfile-plugin"
+keywords = ["electron", "drag", "file", "native", "addon"]
+categories = ["api-bindings", "os"]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# NAPI bindings
+napi = { version = "2", default-features = false, features = ["napi4"] }
+napi-derive = "2"
+
+# Async runtime - simplified features
+tokio = { version = "1", features = ["sync", "rt-multi-thread"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+
+# Static variables
+lazy_static = "1.4"
+
+# Platform-specific dependencies
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3", features = [
+    "winuser",
+    "shellapi",
+    "windef",
+    "winbase",
+    "errhandlingapi",
+    "handleapi",
+    "processthreadsapi"
+] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+cocoa = "0.25"
+objc = "0.2"
+core-foundation = "0.9"
+core-graphics = "0.23"
+
+[build-dependencies]
+napi-build = "2"

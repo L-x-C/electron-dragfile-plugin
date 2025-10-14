@@ -1,0 +1,55 @@
+{
+  "name": "electron-dragfile-plugin",
+  "version": "1.0.3",
+  "description": "Native addon for detecting file drag events in Electron applications",
+  "main": "index.js",
+  "napi": {
+    "name": "electron-dragfile-plugin"
+  },
+  "scripts": {
+    "artifacts": "napi artifacts",
+    "build": "napi build --platform --release",
+    "build:debug": "napi build --platform",
+    "prepublishOnly": "napi prepublish -t npm",
+    "test": "node test/index.js",
+    "version": "napi version",
+    "example": "cd example && npm install && npm start"
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "^2.18.0"
+  },
+  "keywords": [
+    "electron",
+    "drag",
+    "file",
+    "native",
+    "addon",
+    "napi",
+    "napi-rs"
+  ],
+  "author": "Your Name <your.email@example.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/electron-dragfile-plugin.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yourusername/electron-dragfile-plugin/issues"
+  },
+  "homepage": "https://github.com/yourusername/electron-dragfile-plugin#readme",
+  "files": [
+    "index.d.ts",
+    "index.js",
+    "README.md",
+    "LICENSE",
+    "*.node"
+  ],
+  "engines": {
+    "node": ">= 14"
+  },
+  "optionalDependencies": {
+    "electron-dragfile-plugin-win32-x64-msvc": "1.0.3",
+    "electron-dragfile-plugin-darwin-x64": "1.0.3",
+    "electron-dragfile-plugin-linux-x64-gnu": "1.0.3"
+  }
+}
