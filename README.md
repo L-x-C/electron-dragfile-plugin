@@ -1,15 +1,15 @@
 # electron-dragfile-plugin
 
-A high-performance native Node.js addon built with Rust and napi-rs that detects system-wide file drag events. Perfect for Electron applications that need to monitor file dragging across the entire system.
+A high-performance native Node.js addon built with Rust and napi-rs that monitors system-wide mouse events. Perfect for applications that need to track mouse movements and clicks across the entire system.
 
 ## ✨ Features
 
 - 🚀 **High Performance**: Built with Rust for maximum performance and low overhead
-- 🌍 **Cross-Platform**: Supports Windows and macOS (Intel & Apple Silicon)
-- 📡 **System-Wide Detection**: Monitors drag events across the entire system, not just your app
+- 🌍 **Cross-Platform**: Supports macOS, Windows, and Linux
+- 📡 **System-Wide Detection**: Monitors mouse events across the entire system, not just your app
 - 🔧 **Easy to Use**: Simple JavaScript API with TypeScript support
 - 📦 **NPM Ready**: Published to npm for easy installation
-- 🎯 **Electron Ready**: Specifically designed for Electron applications
+- 🎯 **Universal**: Works with any Node.js application, not just Electron
 
 ## 📦 Installation
 
@@ -20,16 +20,26 @@ npm install electron-dragfile-plugin
 ## 🚀 Quick Start
 
 ```javascript
-const { startDragMonitor, onDragEvent } = require('electron-dragfile-plugin');
+const { startMouseMonitor, onMouseEvent } = require('electron-dragfile-plugin');
 
-// Start monitoring drag events
-await startDragMonitor();
+// Start monitoring mouse events
+await startMouseMonitor();
 
-// Listen for drag events
-onDragEvent((event) => {
-  console.log('Files dragged:', event.files);
-  console.log('Timestamp:', event.timestamp);
-  console.log('Source:', event.source);
+// Listen for mouse events
+onMouseEvent((err, event) => {
+  if (err) {
+    console.error('Error:', err);
+    return;
+  }
+
+  const buttonName = event.button === 0 ? 'None' :
+    event.button === 1 ? 'Left' :
+    event.button === 2 ? 'Middle' :
+    event.button === 3 ? 'Right' : `Button ${event.button}`;
+
+  console.log(`🖱️ ${event.eventType.toUpperCase()} at (${event.x.toFixed(2)}, ${event.y.toFixed(2)}) - ${buttonName}`);
+  console.log(`   Platform: ${event.platform}`);
+  console.log(`   Time: ${new Date(event.timestamp * 1000).toLocaleTimeString()}`);
 });
 ```
 
@@ -37,97 +47,110 @@ onDragEvent((event) => {
 
 ### Functions
 
-#### `startDragMonitor(): Promise<void>`
-Start monitoring drag events globally.
+#### `startMouseMonitor(): Promise<void>`
+Start monitoring mouse events globally.
 
-#### `stopDragMonitor(): Promise<void>`
-Stop monitoring drag events.
+#### `stopMouseMonitor(): Promise<void>`
+Stop monitoring mouse events.
 
-#### `onDragEvent(callback: Function): Promise<number>`
-Register a callback for drag events. Returns a callback ID.
+#### `onMouseEvent(callback: Function): Promise<number>`
+Register a callback for mouse events. Returns a callback ID.
 
-#### `removeDragEventListener(callbackId: number): Promise<boolean>`
-Remove a drag event callback using the returned ID.
+#### `removeMouseEventListener(callbackId: number): Promise<boolean>`
+Remove a mouse event callback using the returned ID.
 
 #### `isMonitoring(): Promise<boolean>`
-Check if drag monitoring is currently active.
+Check if mouse monitoring is currently active.
 
-#### `simulateDragEvent(files: string[]): Promise<void>`
-Simulate a drag event for testing purposes.
-
-### DragEvent Interface
+### MouseEvent Interface
 
 ```typescript
-interface DragEvent {
-  files: string[];        // Array of file paths being dragged
-  timestamp: number;      // Unix timestamp of the event
-  source?: string;        // Optional source window information
+interface MouseEvent {
+  eventType: string;      // Event type: "mousedown", "mouseup", "mousemove", "wheel"
+  x: number;             // Mouse X coordinate
+  y: number;             // Mouse Y coordinate
+  button: number;        // Mouse button: 0=no button, 1=left, 2=middle, 3=right
+  timestamp: number;     // Unix timestamp of the event
+  platform: string;     // Platform information: "macos", "windows", "linux"
 }
 ```
 
-### DragMonitor Class
+## 🎯 Application Integration
 
-For easier event management:
+Here's how to integrate with your Node.js application:
 
-```javascript
-const { DragMonitor } = require('electron-dragfile-plugin');
-
-const monitor = new DragMonitor();
-
-await monitor.start((event) => {
-  console.log('Drag detected:', event);
-});
-
-// Later...
-await monitor.stop();
-```
-
-## 🎯 Electron Integration
-
-Here's how to integrate with your Electron app:
-
-### Main Process (main.js)
+### Basic Usage
 
 ```javascript
-const { app, BrowserWindow, ipcMain } = require('electron');
-const { startDragMonitor, onDragEvent } = require('electron-dragfile-plugin');
+const { startMouseMonitor, onMouseEvent, stopMouseMonitor } = require('electron-dragfile-plugin');
 
-function createWindow() {
-  const mainWindow = new BrowserWindow({
-    // ... your window config
-  });
+async function setupMouseTracking() {
+  try {
+    // Start monitoring
+    await startMouseMonitor();
+    console.log('✅ Mouse monitoring started');
 
-  // Initialize drag monitoring
-  await startDragMonitor();
+    // Register callback
+    const callbackId = await onMouseEvent((err, event) => {
+      if (err) {
+        console.error('Mouse event error:', err);
+        return;
+      }
 
-  const callbackId = await onDragEvent((event) => {
-    // Send drag events to renderer
-    mainWindow.webContents.send('drag-event', event);
-  });
-}
+      console.log(`🖱️ ${event.eventType} at (${event.x}, ${event.y})`);
+      // Handle mouse events here
+    });
 
-app.whenReady().then(createWindow);
-```
+    console.log('✅ Callback registered with ID:', callbackId);
 
-### Preload Script (preload.js)
+    // Later, you can stop monitoring
+    // await stopMouseMonitor();
 
-```javascript
-const { contextBridge, ipcRenderer } = require('electron');
-
-contextBridge.exposeInMainWorld('dragAPI', {
-  onDragEvent: (callback) => {
-    ipcRenderer.on('drag-event', (event, data) => callback(data));
+  } catch (error) {
+    console.error('❌ Failed to setup mouse monitoring:', error);
   }
-});
+}
+
+setupMouseTracking();
 ```
 
-### Renderer Process
+### Error Handling
 
 ```javascript
-window.dragAPI.onDragEvent((event) => {
-  console.log('Files were dragged:', event.files);
-  // Update UI or handle drag events
-});
+const { startMouseMonitor, onMouseEvent } = require('electron-dragfile-plugin');
+
+async function robustMouseTracking() {
+  try {
+    await startMouseMonitor();
+
+    const callbackId = await onMouseEvent((err, event) => {
+      if (err) {
+        console.error('Callback error:', err);
+        return;
+      }
+
+      if (!event) {
+        console.warn('Received null event');
+        return;
+      }
+
+      // Process event safely
+      processMouseEvent(event);
+    });
+
+  } catch (setupError) {
+    console.error('Setup failed:', setupError);
+  }
+}
+
+function processMouseEvent(event) {
+  try {
+    // Your event processing logic here
+    console.log(`Mouse event: ${event.eventType} at (${event.x}, ${event.y})`);
+  } catch (processingError) {
+    console.error('Event processing error:', processingError);
+  }
+}
 ```
 
 ## 🧪 Testing
@@ -136,12 +159,30 @@ window.dragAPI.onDragEvent((event) => {
 # Install dependencies
 npm install
 
-# Run tests
-npm test
+# Build the native addon
+npm run build
 
-# Run example Electron app
-npm run example
+# Run the test script
+node test.js
 ```
+
+The test script will start mouse monitoring and log all mouse events to the console.
+
+## 🔧 Platform Requirements
+
+### macOS
+- Requires macOS 10.14 or later
+- May need to grant Accessibility permissions for global mouse monitoring
+  - Go to System Preferences → Security & Privacy → Privacy → Accessibility
+  - Add your terminal or Node.js application to the list
+
+### Windows
+- Requires Windows 10 or later
+- No additional permissions required
+
+### Linux
+- Requires X11 display server
+- No additional permissions required
 
 ## 🏗️ Development
 
@@ -177,9 +218,8 @@ electron-dragfile-plugin/
 ├── index.d.ts              # TypeScript definitions
 ├── Cargo.toml              # Rust project config
 ├── package.json            # NPM package config
-├── example/                # Electron example app
-├── test/                   # Test files
-└── scripts/                # Build scripts
+├── test.js                 # Test script
+└── README.md               # This file
 ```
 
 ## 🔧 Platform Support
@@ -189,6 +229,7 @@ electron-dragfile-plugin/
 | Windows 10+ (x64) | ✅ Supported | electron-dragfile-plugin.win32-x64-msvc.node |
 | macOS 10.14+ (Intel) | ✅ Supported | electron-dragfile-plugin.darwin-x64.node |
 | macOS 11+ (Apple Silicon) | ✅ Supported | electron-dragfile-plugin.darwin-arm64.node |
+| Linux (x64) | ✅ Supported | electron-dragfile-plugin.linux-x64-gnu.node |
 
 ## 🤝 Contributing
 
@@ -207,8 +248,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## 🙏 Acknowledgments
 
 - Built with [napi-rs](https://napi.rs/) for high-performance native addons
+- Uses [rdev](https://github.com/narsil/rdev) for cross-platform mouse event monitoring
 - Platform-specific APIs for system integration
-- The Electron community for inspiration and feedback
 
 ## 📞 Support
 
@@ -219,4 +260,4 @@ If you encounter any issues or have questions:
 
 ---
 
-Made with ❤️ for the Electron community
+Made with ❤️ for the Node.js community
