@@ -124,7 +124,13 @@ jobs:
         VERSION=${GITHUB_REF#refs/tags/v}
         echo "Setting version to $VERSION"
         echo "VERSION=$VERSION" >> $GITHUB_ENV
-        npm version $VERSION --no-git-tag-version
+
+        # Only update version if different
+        if [ "$(npm pkg get version | tr -d '"')" != "$VERSION" ]; then
+          npm version $VERSION --no-git-tag-version
+        else
+          echo "Version already set to $VERSION, skipping npm version command"
+        fi
 
     - name: Copy platform binaries
       run: |
