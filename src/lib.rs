@@ -50,6 +50,7 @@ impl MonitorState {
 
 lazy_static::lazy_static! {
     static ref MONITOR_STATE: Arc<Mutex<MonitorState>> = Arc::new(Mutex::new(MonitorState::new()));
+    static ref LAST_POSITION: Arc<Mutex<Option<(f64, f64)>>> = Arc::new(Mutex::new(None));
 }
 
 /// Convert rdev EventType to our mouse event format
@@ -148,22 +149,11 @@ fn trigger_mouse_event(mouse_event: MouseEvent) {
 
 /// Get current mouse position
 fn get_mouse_position() -> Option<(f64, f64)> {
-    // This is a simplified approach - in a real implementation,
-    // you might want to use platform-specific APIs to get current position
-    // For now, we'll store the last known position from mousemove events
-    lazy_static::lazy_static! {
-        static ref LAST_POSITION: Arc<Mutex<Option<(f64, f64)>>> = Arc::new(Mutex::new(None));
-    }
-
     LAST_POSITION.lock().ok()?.clone()
 }
 
 /// Set current mouse position
 fn set_mouse_position(x: f64, y: f64) {
-    lazy_static::lazy_static! {
-        static ref LAST_POSITION: Arc<Mutex<Option<(f64, f64)>>> = Arc::new(Mutex::new(None));
-    }
-
     if let Ok(mut pos) = LAST_POSITION.lock() {
         *pos = Some((x, y));
     }
@@ -184,7 +174,7 @@ pub fn start_mouse_monitor() -> Result<()> {
     }
 
     // Create a channel for shutdown communication
-    let (shutdown_sender, shutdown_receiver) = mpsc::channel::<()>();
+    let (shutdown_sender, _shutdown_receiver) = mpsc::channel::<()>();
     state.shutdown_sender = Some(shutdown_sender);
 
     // Start monitoring in a separate thread
@@ -266,7 +256,8 @@ pub fn on_mouse_event(callback: JsFunction) -> Result<u32> {
     let threadsafe_callback: ThreadsafeFunction<MouseEvent, ErrorStrategy::CalleeHandled> = callback
         .create_threadsafe_function(0, |ctx| {
             Ok(vec![ctx.value])
-        }).map_err(|e| {
+        })
+        .map_err(|e| {
             Error::new(
                 Status::GenericFailure,
                 format!("Failed to create threadsafe function: {}", e)

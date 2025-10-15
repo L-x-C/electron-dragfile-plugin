@@ -27,13 +27,21 @@ async function main() {
         console.log('✅ Mouse monitoring started');
 
         // Register callback
-        const callbackId = await mousePlugin.onMouseEvent((event) => {
+        const callbackId = await mousePlugin.onMouseEvent((err, event) => {
+            if (err) {
+                console.error('Error in mouse event callback:', err);
+                return;
+            }
+            if (!event) {
+                console.warn('Received a null event.');
+                return;
+            }
             const buttonName = event.button === 0 ? 'None' :
                 event.button === 1 ? 'Left' :
                 event.button === 2 ? 'Middle' :
                 event.button === 3 ? 'Right' : `Button ${event.button}`;
 
-            console.log(`🖱️ ${event.event_type.toUpperCase()} at (${event.x.toFixed(2)}, ${event.y.toFixed(2)}) - ${buttonName}`);
+            console.log(`🖱️ ${event.eventType.toUpperCase()} at (${event.x.toFixed(2)}, ${event.y.toFixed(2)}) - ${buttonName}`);
             console.log(`   Platform: ${event.platform}`);
             console.log(`   Time: ${new Date(event.timestamp * 1000).toLocaleTimeString()}`);
             console.log('---');
