@@ -7,23 +7,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use std::collections::HashMap;
 use std::ptr;
 
-#[cfg(target_os = "macos")]
-use cocoa::base::{id, nil, YES, NO};
-#[cfg(target_os = "macos")]
-use cocoa::foundation::{NSRect, NSPoint, NSSize, NSString, NSAutoreleasePool};
-#[cfg(target_os = "macos")]
-use cocoa::appkit::{NSWindow, NSApp, NSApplication, NSApplicationActivationPolicyRegular};
-#[cfg(target_os = "macos")]
-use objc::runtime::{Class, Object, Sel};
-#[cfg(target_os = "macos")]
-use objc::{class, msg_send, sel, sel_impl};
-#[cfg(target_os = "macos")]
-use core_foundation::base::{CFRelease, CFGetTypeID};
-#[cfg(target_os = "macos")]
-use core_foundation::string::{CFString, CFStringRef};
-#[cfg(target_os = "macos")]
-use core_graphics::geometry::{CGPoint, CGRect};
-
 /// Simple drag event data structure
 #[napi(object)]
 #[derive(Debug, Clone)]
@@ -78,134 +61,42 @@ fn trigger_drag_event(files: Vec<String>, x: f64, y: f64, platform: &str) {
         let callbacks: Vec<_> = state.callbacks.iter().map(|(id, callback)| (*id, callback.clone())).collect();
 
         // Trigger callbacks with event
-        for (_callback_id, callback) in callbacks {
+        for (callback_id, callback) in callbacks {
             let event_clone = event.clone();
 
-            callback.call(Ok(event_clone), ThreadsafeFunctionCallMode::Blocking);
+            tokio::spawn(async move {
+                let status = callback.call(Ok(event_clone), ThreadsafeFunctionCallMode::Blocking);
+                if status != napi::Status::Ok {
+                    eprintln!("Error calling drag event callback (ID: {}), status: {:?}", callback_id, status);
+                }
+            });
         }
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn create_transparent_window() -> Result<id> {
-    unsafe {
-        // Get screen frame
-        let screen: id = msg_send![class!(NSScreen), mainScreen];
-        let screen_frame: NSRect = msg_send![screen, frame];
-
-        // Create transparent window
-        let window: id = msg_send![class!(NSWindow), alloc];
-        let window: id = msg_send![window,
-            initWithContentRect:screen_frame
-            styleMask:0 // NSBorderlessWindowMask
-            backing:2 // NSBackingStoreBuffered
-            defer:NO
-        ];
-
-        if window == nil {
-            return Err(Error::new(
-                Status::GenericFailure,
-                "Failed to create NSWindow"
-            ));
-        }
-
-        // Configure window properties
-        let () = msg_send![window, setLevel:3]; // NSFloatingWindowLevel
-        let () = msg_send![window, setOpaque:NO];
-        let clear_color: id = msg_send![class!(NSColor), clearColor];
-        let () = msg_send![window, setBackgroundColor:clear_color];
-        let () = msg_send![window, setIgnoresMouseEvents:YES];
-
-        // Show window
-        let () = msg_send![window, makeKeyAndOrderFront:nil];
-
-        Ok(window)
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn setup_drag_destination(window: id) -> Result<()> {
-    unsafe {
-        // Register for dragged file types - using UTF8String method
-        let file_type_str = "public.file-url";
-        let file_type: id = msg_send![class!(NSString), stringWithUTF8String:file_type_str.as_ptr()];
-
-        if file_type == nil {
-            return Err(Error::new(
-                Status::GenericFailure,
-                "Failed to create NSString for file type"
-            ));
-        }
-
-        let types: id = msg_send![class!(NSArray), arrayWithObject:file_type];
-        if types == nil {
-            return Err(Error::new(
-                Status::GenericFailure,
-                "Failed to create NSArray with file type"
-            ));
-        }
-
-        // Register for drag operations
-        let () = msg_send![window, registerForDraggedTypes:types];
-
-        Ok(())
     }
 }
 
 /// Start monitoring drag events globally
 #[napi]
 pub fn start_drag_monitor() -> Result<()> {
-    let mut state = MONITOR_STATE.lock().map_err(|_| {
-        Error::new(
-            Status::GenericFailure,
-            "Failed to acquire monitor state lock"
-        )
-    })?;
+    let mut state = MONITOR_STATE.lock().unwrap();
 
     if state.is_monitoring {
         return Ok(());
     }
 
-    #[cfg(target_os = "macos")]
-    {
-        unsafe {
-            // Initialize NSApplication if needed
-            let app: id = msg_send![class!(NSApplication), sharedApplication];
-            if app == nil {
-                let app: id = msg_send![class!(NSApplication), sharedApplication];
-                let () = msg_send![app, setActivationPolicy:2]; // NSApplicationActivationPolicyRegular
-            }
-
-            // Create transparent window for drag monitoring
-            let window = create_transparent_window()?;
-            setup_drag_destination(window)?;
-
-            // For now, we'll just leak the window to keep it alive
-            // TODO: Implement proper window lifecycle management
-        }
-    }
-
+    // Simple monitoring without platform-specific code for now
     state.is_monitoring = true;
-    println!("✅ Drag monitoring started with system integration");
+    println!("✅ Drag monitoring started (basic mode - no system integration)");
     Ok(())
 }
 
 /// Stop monitoring drag events
 #[napi]
 pub fn stop_drag_monitor() -> Result<()> {
-    let mut state = MONITOR_STATE.lock().map_err(|_| {
-        Error::new(
-            Status::GenericFailure,
-            "Failed to acquire monitor state lock"
-        )
-    })?;
+    let mut state = MONITOR_STATE.lock().unwrap();
 
     if !state.is_monitoring {
         return Ok(());
     }
-
-    // TODO: Implement proper window cleanup
-    // For now, we just set the monitoring state
 
     state.is_monitoring = false;
     println!("✅ Drag monitoring stopped");
