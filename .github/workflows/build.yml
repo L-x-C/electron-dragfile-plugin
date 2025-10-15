@@ -144,10 +144,10 @@ jobs:
           cp electron-dragfile-plugin.win32-x64-msvc.node npm/win32-x64-msvc/
 
           # Create package.json for Windows
-          cat > npm/win32-x64-msvc/package.json << 'EOF'
+          cat > npm/win32-x64-msvc/package.json << EOF
         {
           "name": "electron-dragfile-plugin-win32-x64-msvc",
-          "version": "'"$VERSION"'",
+          "version": "$VERSION",
           "description": "Native addon for detecting file drag events in Electron applications",
           "main": "electron-dragfile-plugin.win32-x64-msvc.node",
           "os": ["win32"],
@@ -166,10 +166,10 @@ EOF
           cp electron-dragfile-plugin.darwin-x64.node npm/darwin-x64/
 
           # Create package.json for macOS x64
-          cat > npm/darwin-x64/package.json << 'EOF'
+          cat > npm/darwin-x64/package.json << EOF
         {
           "name": "electron-dragfile-plugin-darwin-x64",
-          "version": "'"$VERSION"'",
+          "version": "$VERSION",
           "description": "Native addon for detecting file drag events in Electron applications",
           "main": "electron-dragfile-plugin.darwin-x64.node",
           "os": ["darwin"],
@@ -188,10 +188,10 @@ EOF
           cp electron-dragfile-plugin.darwin-arm64.node npm/darwin-arm64/
 
           # Create package.json for macOS ARM64
-          cat > npm/darwin-arm64/package.json << 'EOF'
+          cat > npm/darwin-arm64/package.json << EOF
         {
           "name": "electron-dragfile-plugin-darwin-arm64",
-          "version": "'"$VERSION"'",
+          "version": "$VERSION",
           "description": "Native addon for detecting file drag events in Electron applications",
           "main": "electron-dragfile-plugin.darwin-arm64.node",
           "os": ["darwin"],
