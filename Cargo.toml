@@ -1,12 +1,12 @@
 [package]
 edition = "2021"
 name = "electron-dragfile-plugin"
-version = "1.0.4"
-description = "Native addon for detecting file drag events in Electron applications"
+version = "1.0.8"
+description = "Native addon for detecting mouse events in Node.js applications"
 authors = ["Your Name <your.email@example.com>"]
 license = "MIT"
 repository = "https://github.com/yourusername/electron-dragfile-plugin"
-keywords = ["electron", "drag", "file", "native", "addon"]
+keywords = ["mouse", "events", "native", "addon", "napi", "napi-rs"]
 categories = ["api-bindings", "os"]
 
 [lib]
@@ -17,7 +17,10 @@ crate-type = ["cdylib"]
 napi = { version = "2", default-features = false, features = ["napi4", "async"] }
 napi-derive = "2"
 
-# Async runtime - simplified features
+# Mouse event monitoring
+rdev = { version = "0.5", features = ["unstable_grab"] }
+
+# Async runtime
 tokio = { version = "1", features = ["sync", "rt-multi-thread"] }
 
 # Serialization
@@ -26,36 +29,6 @@ serde_json = "1.0"
 
 # Static variables
 lazy_static = "1.4"
-
-# Platform-specific dependencies
-[target.'cfg(windows)'.dependencies]
-winapi = { version = "0.3", features = [
-    "winuser",
-    "windef",
-    "minwindef",
-    "libloaderapi",
-    "ole2",
-    "oleidl",
-    "shellapi",
-    "combaseapi",
-    "objbase",
-    "guiddef"
-] }
-widestring = "1.0"
-
-[target.'cfg(target_os = "linux")'.dependencies]
-x11 = "2.21"
-wayland-sys = "0.24"
-libc = "0.2"
-
-[target.'cfg(target_os = "macos")'.dependencies]
-cocoa = "0.25"
-objc = "0.2"
-core-foundation = "0.9"
-core-graphics = "0.23"
-block = "0.1"
-dispatch = "0.2"
-libc = "0.2"
 
 [build-dependencies]
 napi-build = "2"

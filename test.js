@@ -3,13 +3,13 @@
 const path = require('path');
 
 // Load the plugin
-let dragPlugin;
+let mousePlugin;
 try {
     const localPath = path.join(__dirname, 'index.js');
     if (require('fs').existsSync(localPath)) {
-        dragPlugin = require(localPath);
+        mousePlugin = require(localPath);
     } else {
-        dragPlugin = require('electron-dragfile-plugin');
+        mousePlugin = require('electron-dragfile-plugin');
     }
     console.log('✅ Plugin loaded');
 } catch (error) {
@@ -20,37 +20,41 @@ try {
 
 async function main() {
     try {
-        console.log('🚀 Starting drag monitoring...');
+        console.log('🚀 Starting mouse event monitoring...');
 
         // Start monitoring
-        await dragPlugin.startDragMonitor();
-        console.log('✅ Monitoring started');
+        await mousePlugin.startMouseMonitor();
+        console.log('✅ Mouse monitoring started');
 
         // Register callback
-        const callbackId = await dragPlugin.onDragEvent((event) => {
-            console.log('🎯 DRAG DETECTED!');
-            console.log('   Files:', event.files);
-            console.log('   Position:', `(${event.x}, ${event.y})`);
-            console.log('   Platform:', event.platform);
-            console.log('   Time:', new Date(event.timestamp * 1000).toLocaleTimeString());
+        const callbackId = await mousePlugin.onMouseEvent((event) => {
+            const buttonName = event.button === 0 ? 'None' :
+                event.button === 1 ? 'Left' :
+                event.button === 2 ? 'Middle' :
+                event.button === 3 ? 'Right' : `Button ${event.button}`;
+
+            console.log(`🖱️ ${event.event_type.toUpperCase()} at (${event.x.toFixed(2)}, ${event.y.toFixed(2)}) - ${buttonName}`);
+            console.log(`   Platform: ${event.platform}`);
+            console.log(`   Time: ${new Date(event.timestamp * 1000).toLocaleTimeString()}`);
             console.log('---');
         });
 
-        console.log('✅ Callback registered');
-        console.log('📝 Now try dragging a file on your desktop!');
+        console.log('✅ Mouse event callback registered');
+        console.log('📝 Move your mouse and click to see events!');
         console.log('   (Press Ctrl+C to stop)');
 
         // Handle cleanup
         process.on('SIGINT', async () => {
-            console.log('\n⏹️ Stopping...');
-            await dragPlugin.removeDragEventListener(callbackId);
-            await dragPlugin.stopDragMonitor();
+            console.log('\n⏹️ Stopping mouse monitor...');
+            await mousePlugin.removeMouseEventListener(callbackId);
+            await mousePlugin.stopMouseMonitor();
             console.log('✅ Done');
             process.exit(0);
         });
 
     } catch (error) {
         console.error('❌ Error:', error.message);
+        console.error('Stack:', error.stack);
         process.exit(1);
     }
 }

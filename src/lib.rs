@@ -1,49 +1,39 @@
 use napi::bindgen_prelude::*;
 use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode, ErrorStrategy};
-use napi::NapiRaw;
 use napi_derive::napi;
+use rdev::{listen, Event, EventType, Button};
 use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
 use std::collections::HashMap;
-use std::ptr;
+use std::sync::mpsc;
+use std::thread;
+use std::time::{SystemTime, UNIX_EPOCH};
+use serde::{Serialize, Deserialize};
 
-#[cfg(target_os = "macos")]
-use cocoa::base::{id, nil, YES, NO};
-#[cfg(target_os = "macos")]
-use cocoa::foundation::{NSRect, NSPoint, NSSize, NSString, NSAutoreleasePool};
-#[cfg(target_os = "macos")]
-use cocoa::appkit::{NSWindow, NSApp, NSApplication, NSApplicationActivationPolicyRegular};
-#[cfg(target_os = "macos")]
-use objc::runtime::{Class, Object, Sel};
-#[cfg(target_os = "macos")]
-use objc::{class, msg_send, sel, sel_impl};
-#[cfg(target_os = "macos")]
-use core_foundation::base::{CFRelease, CFGetTypeID};
-#[cfg(target_os = "macos")]
-use core_foundation::string::{CFString, CFStringRef};
-#[cfg(target_os = "macos")]
-use core_graphics::geometry::{CGPoint, CGRect};
-
-/// Simple drag event data structure
+/// Mouse event data structure for Node.js
 #[napi(object)]
-#[derive(Debug, Clone)]
-pub struct DragEvent {
-    /// Array of file paths being dragged
-    pub files: Vec<String>,
-    /// Timestamp when the drag event occurred
-    pub timestamp: f64,
-    /// Mouse coordinates when drag was detected
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct MouseEvent {
+    /// Type of mouse event: "mousedown", "mouseup", "mousemove"
+    pub event_type: String,
+    /// Mouse X coordinate
     pub x: f64,
+    /// Mouse Y coordinate
     pub y: f64,
+    /// Mouse button: 0=no button, 1=left, 2=middle, 3=right
+    pub button: i32,
+    /// Timestamp when the event occurred
+    pub timestamp: f64,
     /// Platform information
     pub platform: String,
 }
 
-/// Global state for drag monitoring
+/// Global state for mouse monitoring
 struct MonitorState {
     is_monitoring: bool,
-    callbacks: HashMap<u32, ThreadsafeFunction<DragEvent, ErrorStrategy::CalleeHandled>>,
+    callbacks: HashMap<u32, ThreadsafeFunction<MouseEvent, ErrorStrategy::CalleeHandled>>,
     next_callback_id: u32,
+    shutdown_sender: Option<mpsc::Sender<()>>,
+    monitor_handle: Option<thread::JoinHandle<()>>,
 }
 
 impl MonitorState {
@@ -52,6 +42,8 @@ impl MonitorState {
             is_monitoring: false,
             callbacks: HashMap::new(),
             next_callback_id: 0,
+            shutdown_sender: None,
+            monitor_handle: None,
         }
     }
 }
@@ -60,101 +52,126 @@ lazy_static::lazy_static! {
     static ref MONITOR_STATE: Arc<Mutex<MonitorState>> = Arc::new(Mutex::new(MonitorState::new()));
 }
 
-/// Trigger drag event callbacks
-fn trigger_drag_event(files: Vec<String>, x: f64, y: f64, platform: &str) {
-    let event = DragEvent {
-        files: files.clone(),
-        x,
-        y,
-        platform: platform.to_string(),
-        timestamp: SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs_f64(),
+/// Convert rdev EventType to our mouse event format
+fn convert_rdev_event(event: Event) -> Option<MouseEvent> {
+    let platform = if cfg!(target_os = "macos") {
+        "macos"
+    } else if cfg!(target_os = "windows") {
+        "windows"
+    } else if cfg!(target_os = "linux") {
+        "linux"
+    } else {
+        "unknown"
     };
 
+    let timestamp = event.time
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs_f64();
+
+    match event.event_type {
+        EventType::ButtonPress(button) => {
+            let button_num = match button {
+                Button::Left => 1,
+                Button::Middle => 2,
+                Button::Right => 3,
+                Button::Unknown(b) => b as i32,
+            };
+
+            Some(MouseEvent {
+                event_type: "mousedown".to_string(),
+                x: 0.0, // Will be updated with actual coordinates
+                y: 0.0, // Will be updated with actual coordinates
+                button: button_num,
+                timestamp,
+                platform: platform.to_string(),
+            })
+        }
+        EventType::ButtonRelease(button) => {
+            let button_num = match button {
+                Button::Left => 1,
+                Button::Middle => 2,
+                Button::Right => 3,
+                Button::Unknown(b) => b as i32,
+            };
+
+            Some(MouseEvent {
+                event_type: "mouseup".to_string(),
+                x: 0.0, // Will be updated with actual coordinates
+                y: 0.0, // Will be updated with actual coordinates
+                button: button_num,
+                timestamp,
+                platform: platform.to_string(),
+            })
+        }
+        EventType::MouseMove { x, y } => {
+            Some(MouseEvent {
+                event_type: "mousemove".to_string(),
+                x,
+                y,
+                button: 0,
+                timestamp,
+                platform: platform.to_string(),
+            })
+        }
+        EventType::Wheel { delta_x: _, delta_y: _ } => {
+            // Include wheel events as well
+            Some(MouseEvent {
+                event_type: "wheel".to_string(),
+                x: 0.0,
+                y: 0.0,
+                button: 0,
+                timestamp,
+                platform: platform.to_string(),
+            })
+        }
+        _ => {
+            // Ignore keyboard events
+            None
+        }
+    }
+}
+
+/// Trigger mouse event callbacks
+fn trigger_mouse_event(mouse_event: MouseEvent) {
     if let Ok(state) = MONITOR_STATE.lock() {
         // Clone callbacks to avoid borrowing issues
         let callbacks: Vec<_> = state.callbacks.iter().map(|(id, callback)| (*id, callback.clone())).collect();
 
         // Trigger callbacks with event
         for (_callback_id, callback) in callbacks {
-            let event_clone = event.clone();
-
+            let event_clone = mouse_event.clone();
             callback.call(Ok(event_clone), ThreadsafeFunctionCallMode::Blocking);
         }
     }
 }
 
-#[cfg(target_os = "macos")]
-fn create_transparent_window() -> Result<id> {
-    unsafe {
-        // Get screen frame
-        let screen: id = msg_send![class!(NSScreen), mainScreen];
-        let screen_frame: NSRect = msg_send![screen, frame];
+/// Get current mouse position
+fn get_mouse_position() -> Option<(f64, f64)> {
+    // This is a simplified approach - in a real implementation,
+    // you might want to use platform-specific APIs to get current position
+    // For now, we'll store the last known position from mousemove events
+    lazy_static::lazy_static! {
+        static ref LAST_POSITION: Arc<Mutex<Option<(f64, f64)>>> = Arc::new(Mutex::new(None));
+    }
 
-        // Create transparent window
-        let window: id = msg_send![class!(NSWindow), alloc];
-        let window: id = msg_send![window,
-            initWithContentRect:screen_frame
-            styleMask:0 // NSBorderlessWindowMask
-            backing:2 // NSBackingStoreBuffered
-            defer:NO
-        ];
+    LAST_POSITION.lock().ok()?.clone()
+}
 
-        if window == nil {
-            return Err(Error::new(
-                Status::GenericFailure,
-                "Failed to create NSWindow"
-            ));
-        }
+/// Set current mouse position
+fn set_mouse_position(x: f64, y: f64) {
+    lazy_static::lazy_static! {
+        static ref LAST_POSITION: Arc<Mutex<Option<(f64, f64)>>> = Arc::new(Mutex::new(None));
+    }
 
-        // Configure window properties
-        let () = msg_send![window, setLevel:3]; // NSFloatingWindowLevel
-        let () = msg_send![window, setOpaque:NO];
-        let clear_color: id = msg_send![class!(NSColor), clearColor];
-        let () = msg_send![window, setBackgroundColor:clear_color];
-        let () = msg_send![window, setIgnoresMouseEvents:YES];
-
-        // Show window
-        let () = msg_send![window, makeKeyAndOrderFront:nil];
-
-        Ok(window)
+    if let Ok(mut pos) = LAST_POSITION.lock() {
+        *pos = Some((x, y));
     }
 }
 
-#[cfg(target_os = "macos")]
-fn setup_drag_destination(window: id) -> Result<()> {
-    unsafe {
-        // Register for dragged file types - using UTF8String method
-        let file_type_str = "public.file-url";
-        let file_type: id = msg_send![class!(NSString), stringWithUTF8String:file_type_str.as_ptr()];
-
-        if file_type == nil {
-            return Err(Error::new(
-                Status::GenericFailure,
-                "Failed to create NSString for file type"
-            ));
-        }
-
-        let types: id = msg_send![class!(NSArray), arrayWithObject:file_type];
-        if types == nil {
-            return Err(Error::new(
-                Status::GenericFailure,
-                "Failed to create NSArray with file type"
-            ));
-        }
-
-        // Register for drag operations
-        let () = msg_send![window, registerForDraggedTypes:types];
-
-        Ok(())
-    }
-}
-
-/// Start monitoring drag events globally
+/// Start monitoring mouse events globally
 #[napi]
-pub fn start_drag_monitor() -> Result<()> {
+pub fn start_mouse_monitor() -> Result<()> {
     let mut state = MONITOR_STATE.lock().map_err(|_| {
         Error::new(
             Status::GenericFailure,
@@ -166,33 +183,46 @@ pub fn start_drag_monitor() -> Result<()> {
         return Ok(());
     }
 
-    #[cfg(target_os = "macos")]
-    {
-        unsafe {
-            // Initialize NSApplication if needed
-            let app: id = msg_send![class!(NSApplication), sharedApplication];
-            if app == nil {
-                let app: id = msg_send![class!(NSApplication), sharedApplication];
-                let () = msg_send![app, setActivationPolicy:2]; // NSApplicationActivationPolicyRegular
+    // Create a channel for shutdown communication
+    let (shutdown_sender, shutdown_receiver) = mpsc::channel::<()>();
+    state.shutdown_sender = Some(shutdown_sender);
+
+    // Start monitoring in a separate thread
+    let handle = thread::spawn(move || {
+        println!("🖱️ Starting mouse event monitoring...");
+
+        let callback = move |event: Event| {
+            if let Some(mut mouse_event) = convert_rdev_event(event) {
+                // Update coordinates for button events using last known position
+                if mouse_event.event_type != "mousemove" {
+                    if let Some((x, y)) = get_mouse_position() {
+                        mouse_event.x = x;
+                        mouse_event.y = y;
+                    }
+                } else {
+                    // Store the position for button events
+                    set_mouse_position(mouse_event.x, mouse_event.y);
+                }
+
+                trigger_mouse_event(mouse_event);
             }
+        };
 
-            // Create transparent window for drag monitoring
-            let window = create_transparent_window()?;
-            setup_drag_destination(window)?;
-
-            // For now, we'll just leak the window to keep it alive
-            // TODO: Implement proper window lifecycle management
+        // Start the actual event listening
+        if let Err(error) = listen(callback) {
+            println!("Error listening to mouse events: {:?}", error);
         }
-    }
+    });
 
+    state.monitor_handle = Some(handle);
     state.is_monitoring = true;
-    println!("✅ Drag monitoring started with system integration");
+    println!("✅ Mouse monitoring started");
     Ok(())
 }
 
-/// Stop monitoring drag events
+/// Stop monitoring mouse events
 #[napi]
-pub fn stop_drag_monitor() -> Result<()> {
+pub fn stop_mouse_monitor() -> Result<()> {
     let mut state = MONITOR_STATE.lock().map_err(|_| {
         Error::new(
             Status::GenericFailure,
@@ -204,25 +234,24 @@ pub fn stop_drag_monitor() -> Result<()> {
         return Ok(());
     }
 
-    // TODO: Implement proper window cleanup
-    // For now, we just set the monitoring state
+    // Send shutdown signal if we have a sender
+    if let Some(sender) = state.shutdown_sender.take() {
+        let _ = sender.send(());
+    }
+
+    // Wait for the monitor thread to finish
+    if let Some(handle) = state.monitor_handle.take() {
+        let _ = handle.join();
+    }
 
     state.is_monitoring = false;
-    println!("✅ Drag monitoring stopped");
+    println!("✅ Mouse monitoring stopped");
     Ok(())
 }
 
-/// Register a callback for drag events
+/// Register a callback for mouse events
 #[napi]
-pub fn on_drag_event(callback: JsFunction) -> Result<u32> {
-    // Validate the callback function
-    if unsafe { callback.raw() } == ptr::null_mut() {
-        return Err(Error::new(
-            Status::InvalidArg,
-            "Callback function is null or invalid"
-        ));
-    }
-
+pub fn on_mouse_event(callback: JsFunction) -> Result<u32> {
     let mut state = MONITOR_STATE.lock().map_err(|_| {
         Error::new(
             Status::GenericFailure,
@@ -234,7 +263,7 @@ pub fn on_drag_event(callback: JsFunction) -> Result<u32> {
     state.next_callback_id = callback_id;
 
     // Create a threadsafe function from the JavaScript callback
-    let threadsafe_callback: ThreadsafeFunction<DragEvent, ErrorStrategy::CalleeHandled> = callback
+    let threadsafe_callback: ThreadsafeFunction<MouseEvent, ErrorStrategy::CalleeHandled> = callback
         .create_threadsafe_function(0, |ctx| {
             Ok(vec![ctx.value])
         }).map_err(|e| {
@@ -249,17 +278,9 @@ pub fn on_drag_event(callback: JsFunction) -> Result<u32> {
     Ok(callback_id)
 }
 
-/// Remove a drag event callback
+/// Remove a mouse event callback
 #[napi]
-pub fn remove_drag_event_listener(callback_id: u32) -> Result<bool> {
-    // Validate callback ID
-    if callback_id == 0 {
-        return Err(Error::new(
-            Status::InvalidArg,
-            "Callback ID cannot be 0"
-        ));
-    }
-
+pub fn remove_mouse_event_listener(callback_id: u32) -> Result<bool> {
     let mut state = MONITOR_STATE.lock().map_err(|_| {
         Error::new(
             Status::GenericFailure,
@@ -274,38 +295,10 @@ pub fn remove_drag_event_listener(callback_id: u32) -> Result<bool> {
     }
 }
 
-/// Check if drag monitoring is currently active
+/// Check if mouse monitoring is currently active
 #[napi]
 pub fn is_monitoring() -> bool {
     let state = MONITOR_STATE.lock().unwrap();
     state.is_monitoring
 }
 
-/// Simulate a drag event for testing purposes
-#[napi]
-pub fn simulate_drag_event(files: Vec<String>) -> Result<()> {
-    // Validate input
-    if files.is_empty() {
-        return Err(Error::new(
-            Status::InvalidArg,
-            "Files array cannot be empty"
-        ));
-    }
-
-    println!("📤 Simulating drag event with {} file(s): {:?}", files.len(), files);
-
-    // Use the unified trigger function
-    let platform = if cfg!(target_os = "macos") {
-        "macos"
-    } else if cfg!(target_os = "windows") {
-        "windows"
-    } else if cfg!(target_os = "linux") {
-        "linux"
-    } else {
-        "unknown"
-    };
-
-    trigger_drag_event(files, 0.0, 0.0, platform);
-
-    Ok(())
-}

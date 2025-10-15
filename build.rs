@@ -11,6 +11,7 @@ fn main() {
         println!("cargo:rustc-link-lib=framework=CoreGraphics");
         println!("cargo:rustc-link-lib=framework=Cocoa");
         println!("cargo:rustc-link-lib=framework=AppKit");
+        println!("cargo:rustc-link-lib=framework=Foundation");
 
         // Set deployment target for better compatibility
         println!("cargo:rustc-env=MACOSX_DEPLOYMENT_TARGET=10.13");

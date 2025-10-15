@@ -310,11 +310,10 @@ if (!nativeBinding) {
   throw new Error(`Failed to load native binding`)
 }
 
-const { startDragMonitor, stopDragMonitor, onDragEvent, removeDragEventListener, isMonitoring, simulateDragEvent } = nativeBinding
+const { startMouseMonitor, stopMouseMonitor, onMouseEvent, removeMouseEventListener, isMonitoring } = nativeBinding
 
-module.exports.startDragMonitor = startDragMonitor
-module.exports.stopDragMonitor = stopDragMonitor
-module.exports.onDragEvent = onDragEvent
-module.exports.removeDragEventListener = removeDragEventListener
+module.exports.startMouseMonitor = startMouseMonitor
+module.exports.stopMouseMonitor = stopMouseMonitor
+module.exports.onMouseEvent = onMouseEvent
+module.exports.removeMouseEventListener = removeMouseEventListener
 module.exports.isMonitoring = isMonitoring
-module.exports.simulateDragEvent = simulateDragEvent
