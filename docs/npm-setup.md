@@ -7,7 +7,7 @@
 1. 登录 [npmjs.com](https://www.npmjs.com)
 2. 点击右上角头像 → **Access Tokens**
 3. 点击 **Generate New Token**
-4. 选择 **Automation** 类型（用于 CI/CD）
+4. 选择 **Classic Token** 类型（GitHub Actions 需要 Classic Token）
 5. 给 token 一个描述性名称，如 "GitHub Actions electron-dragfile-plugin"
 6. 复制生成的 token（只显示一次，请妥善保存）
 
@@ -63,7 +63,7 @@ git push origin v1.0.6
 如果发布仍然失败：
 
 1. **检查 NPM 权限**: 确保你有这个包的发布权限
-2. **检查 token 类型**: 必须是 **Automation** 类型，不是 **Granular**
+2. **检查 token 类型**: 必须是 **Classic Token** 类型，不是 **Granular**
 3. **检查仓库设置**: 确保 Actions 已启用
 4. **查看日志**: 检查 GitHub Actions 的详细错误信息
 

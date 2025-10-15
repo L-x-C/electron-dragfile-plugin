@@ -48,7 +48,6 @@ jobs:
         node-version: '20'
         cache: 'npm'
 
-    
     - name: Install dependencies
       run: npm install
 
@@ -56,7 +55,7 @@ jobs:
       run: npm run build:simple
 
     - name: Rename binary for platform (Unix)
-      if: always() && matrix.os != 'windows-latest'
+      if: matrix.os != 'windows-latest'
       run: |
         if [ -f "electron-dragfile-plugin.node" ]; then
           cp electron-dragfile-plugin.node ${{ matrix.artifact }}
@@ -66,7 +65,7 @@ jobs:
         fi
 
     - name: Rename binary for platform (Windows)
-      if: always() && matrix.os == 'windows-latest'
+      if: matrix.os == 'windows-latest'
       run: |
         if (Test-Path "electron-dragfile-plugin.node") {
           Copy-Item "electron-dragfile-plugin.node" "${{ matrix.artifact }}"
@@ -113,87 +112,111 @@ jobs:
         merge-multiple: true
 
     - name: List artifacts
-      run: ls -la artifacts/
+      run: |
+        echo "📦 Downloaded artifacts:"
+        ls -la artifacts/
 
     - name: Install dependencies
       run: npm install
 
-    - name: Update version in package.json and Cargo.toml
+    - name: Update version
       run: |
         VERSION=${GITHUB_REF#refs/tags/v}
         echo "Setting version to $VERSION"
-        # Update package.json
+        echo "VERSION=$VERSION" >> $GITHUB_ENV
         npm version $VERSION --no-git-tag-version
-        # Update Cargo.toml to match
-        sed -i.bak "s/^version = .*/version = \"$VERSION\"/" Cargo.toml
 
-    - name: Copy platform binaries to current directory
+    - name: Copy platform binaries
       run: |
+        echo "🔧 Setting up multi-platform binaries..."
+
+        # Copy all platform binaries to current directory
         cp artifacts/*.node ./
         ls -la *.node
 
-    - name: Copy binaries to npm directory structure
+    - name: Create platform packages
       run: |
-        mkdir -p npm/win32-x64-msvc
-        mkdir -p npm/darwin-x64
-        mkdir -p npm/darwin-arm64
+        echo "📦 Creating platform-specific packages..."
 
-        # Copy binaries to npm directories that napi prepublish expects
+        # Windows x64
         if [ -f "electron-dragfile-plugin.win32-x64-msvc.node" ]; then
+          mkdir -p npm/win32-x64-msvc
           cp electron-dragfile-plugin.win32-x64-msvc.node npm/win32-x64-msvc/
-          # Create package.json for each platform
-          cat > npm/win32-x64-msvc/package.json << EOF
+
+          # Create package.json for Windows
+          cat > npm/win32-x64-msvc/package.json << 'EOF'
         {
           "name": "electron-dragfile-plugin-win32-x64-msvc",
-          "version": "${VERSION:-1.0.6}",
+          "version": "'"$VERSION"'",
           "description": "Native addon for detecting file drag events in Electron applications",
           "main": "electron-dragfile-plugin.win32-x64-msvc.node",
           "os": ["win32"],
-          "cpu": ["x64"]
+          "cpu": ["x64"],
+          "engines": {
+            "node": ">= 14"
+          }
         }
 EOF
+          echo "✅ Windows x64 package created"
         fi
+
+        # macOS x64
         if [ -f "electron-dragfile-plugin.darwin-x64.node" ]; then
+          mkdir -p npm/darwin-x64
           cp electron-dragfile-plugin.darwin-x64.node npm/darwin-x64/
-          cat > npm/darwin-x64/package.json << EOF
+
+          # Create package.json for macOS x64
+          cat > npm/darwin-x64/package.json << 'EOF'
         {
           "name": "electron-dragfile-plugin-darwin-x64",
-          "version": "${VERSION:-1.0.6}",
+          "version": "'"$VERSION"'",
           "description": "Native addon for detecting file drag events in Electron applications",
           "main": "electron-dragfile-plugin.darwin-x64.node",
           "os": ["darwin"],
-          "cpu": ["x64"]
+          "cpu": ["x64"],
+          "engines": {
+            "node": ">= 14"
+          }
         }
 EOF
+          echo "✅ macOS x64 package created"
         fi
+
+        # macOS ARM64
         if [ -f "electron-dragfile-plugin.darwin-arm64.node" ]; then
+          mkdir -p npm/darwin-arm64
           cp electron-dragfile-plugin.darwin-arm64.node npm/darwin-arm64/
-          cat > npm/darwin-arm64/package.json << EOF
+
+          # Create package.json for macOS ARM64
+          cat > npm/darwin-arm64/package.json << 'EOF'
         {
           "name": "electron-dragfile-plugin-darwin-arm64",
-          "version": "${VERSION:-1.0.6}",
+          "version": "'"$VERSION"'",
           "description": "Native addon for detecting file drag events in Electron applications",
           "main": "electron-dragfile-plugin.darwin-arm64.node",
           "os": ["darwin"],
-          "cpu": ["arm64"]
+          "cpu": ["arm64"],
+          "engines": {
+            "node": ">= 14"
+          }
         }
 EOF
+          echo "✅ macOS ARM64 package created"
         fi
 
-        echo "Binary structure:"
+        echo "📋 Package structure:"
         find npm -name "*.node" -exec ls -la {} \;
-        echo "Package.json files:"
         find npm -name "package.json" -exec echo "📄 {}" \;
 
-    - name: Prepublish
-      run: npm run prepublishOnly
-
-    - name: Verify prepublish results
+    - name: Prepare for publishing
       run: |
-        echo "Files after prepublish:"
-        ls -la *.node || echo "No .node files in root"
-        echo "npm directory contents:"
-        find npm -name "*.node" -exec ls -la {} \; || echo "No .node files in npm directory"
+        echo "🚀 Preparing for npm publishing..."
+
+        # Ensure all required files exist
+        echo "Files to be published:"
+        ls -la index.js index.d.ts README.md LICENSE package.json
+        echo "Platform binaries:"
+        find npm -name "*.node" -exec echo "  - {}" \;
 
     - name: Publish to npm
       run: npm publish --access public
