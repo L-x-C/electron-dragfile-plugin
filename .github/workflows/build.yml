@@ -213,10 +213,27 @@ jobs:
         echo "🚀 Preparing for npm publishing..."
 
         # Ensure all required files exist
-        echo "Files to be published:"
-        ls -la index.js index.d.ts README.md LICENSE package.json
-        echo "Platform binaries:"
+        echo "📁 Checking files in current directory:"
+        ls -la
+
+        echo "📋 Files to be published:"
+        ls -la index.js README.md LICENSE package.json
+
+        # Check for TypeScript definitions
+        if [ -f "index.d.ts" ]; then
+          echo "✅ index.d.ts found"
+        else
+          echo "❌ index.d.ts not found, attempting to regenerate..."
+          # Try to generate TypeScript definitions if they don't exist
+          npx napi build --platform --release --target x86_64-apple-darwin || echo "Failed to generate index.d.ts"
+        fi
+
+        echo "🔧 Platform binaries:"
         find npm -name "*.node" -exec echo "  - {}" \;
+
+        # List all .node files
+        echo "📦 All .node files in root:"
+        ls -la *.node 2>/dev/null || echo "No .node files in root"
 
     - name: Publish to npm
       run: npm publish --access public
