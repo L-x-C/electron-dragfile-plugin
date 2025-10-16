@@ -62,13 +62,13 @@ impl ApplicationHandler<()> for App {
                 eprintln!("[helper] Scaled physical coordinates: ({}, {})", scaled_mouse_x, scaled_mouse_y);
 
                 // Calculate border window positions (4 windows: top, bottom, left, right)
-                let distance = 15.0; // 15 pixels distance from mouse center
+                let distance = 50.0; // 50 pixels distance from mouse center
 
-                // Define border window sizes
-                let (top_width, top_height) = (40.0, 10.0);  // Top border: 40x10
-                let (bottom_width, bottom_height) = (40.0, 10.0);  // Bottom border: 40x10
-                let (left_width, left_height) = (10.0, 40.0);  // Left border: 10x40
-                let (right_width, right_height) = (10.0, 40.0);  // Right border: 10x40
+                // Define border window sizes - make them larger for better visibility
+                let (top_width, top_height) = (80.0, 15.0);  // Top border: 80x15
+                let (bottom_width, bottom_height) = (80.0, 15.0);  // Bottom border: 80x15
+                let (left_width, left_height) = (15.0, 80.0);  // Left border: 15x80
+                let (right_width, right_height) = (15.0, 80.0);  // Right border: 15x80
 
                 // Calculate positions for 4 border windows
                 let mut positions = Vec::with_capacity(4);
@@ -136,13 +136,13 @@ impl ApplicationHandler<()> for App {
                 // Fallback to centered border layout
                 let center_x = (monitor_size.width as f64) / 2.0;
                 let center_y = (monitor_size.height as f64) / 2.0;
-                let distance = 15.0;
+                let distance = 50.0;
 
-                // Define border window sizes
-                let (top_width, top_height) = (40.0, 10.0);
-                let (bottom_width, bottom_height) = (40.0, 10.0);
-                let (left_width, left_height) = (10.0, 40.0);
-                let (right_width, right_height) = (10.0, 40.0);
+                // Define border window sizes - make them larger for better visibility
+                let (top_width, top_height) = (80.0, 15.0);
+                let (bottom_width, bottom_height) = (80.0, 15.0);
+                let (left_width, left_height) = (15.0, 80.0);
+                let (right_width, right_height) = (15.0, 80.0);
 
                 let mut positions = Vec::with_capacity(4);
 
@@ -199,7 +199,7 @@ impl ApplicationHandler<()> for App {
 
             // Quick startup signal - indicate windows are ready
             eprintln!("[helper] ✓ {} border windows created successfully and ready for drag events", self.windows.len());
-            eprintln!("[helper] 🎯 Border coverage: 口-shaped layout with top (40x10), bottom (40x10), left (10x40), right (10x40) at 15px distance");
+            eprintln!("[helper] 🎯 Border coverage: 口-shaped layout with top (80x15), bottom (80x15), left (15x80), right (15x80) at 50px distance");
             eprintln!("[helper] === END 4-WINDOW BORDER CREATION DEBUG ===");
         }
     }
