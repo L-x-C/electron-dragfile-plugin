@@ -52,9 +52,9 @@ impl ApplicationHandler<()> for App {
             let window_height = 100;
             eprintln!("[helper] Window dimensions: {}x{}", window_width, window_height);
 
-            // Calculate positions for two windows
+            // Calculate positions for 3x3 grid windows
             let window_positions = if let Some((mouse_x, mouse_y)) = self.initial_position {
-                eprintln!("[helper] 🎯 DUAL WINDOW MODE - Using mouse coordinates: ({}, {})", mouse_x, mouse_y);
+                eprintln!("[helper] 🎯 3x3 GRID WINDOW MODE - Using mouse coordinates: ({}, {})", mouse_x, mouse_y);
 
                 // Apply scale factor for HiDPI displays
                 // rdev returns logical coordinates, but winit needs physical coordinates
@@ -66,54 +66,92 @@ impl ApplicationHandler<()> for App {
                 eprintln!("[helper] Scale factor: {}", scale_factor);
                 eprintln!("[helper] Scaled physical coordinates: ({}, {})", scaled_mouse_x, scaled_mouse_y);
 
-                // Window 1: Direct positioning at mouse position
-                let window1_x = scaled_mouse_x;
-                let window1_y = scaled_mouse_y;
+                // Calculate grid positions (3x3 = 9 windows)
+                let spacing = 200.0; // 200 pixels between windows
+                let mut positions = Vec::with_capacity(9);
 
-                // Window 2: 200 pixels to the right of Window 1
-                let window2_x = scaled_mouse_x + 200.0;
-                let window2_y = scaled_mouse_y;
+                eprintln!("[helper] 📐 Calculating 3x3 grid positions with {}px spacing", spacing);
+                eprintln!("[helper] Grid layout:");
 
-                // Apply boundary checks for both windows
+                for row in -1..=1 {
+                    for col in -1..=1 {
+                        let offset_x = col as f64 * spacing;
+                        let offset_y = row as f64 * spacing;
+                        let window_x = scaled_mouse_x + offset_x;
+                        let window_y = scaled_mouse_y + offset_y;
+                        positions.push((window_x, window_y, row, col));
+
+                        // Visual grid representation
+                        let marker = if row == 0 && col == 0 { "🎯" } else { "⬜" };
+                        eprintln!("  [{}{}] ({}, {}) {}",
+                            if col == -1 { "L" } else if col == 0 { "C" } else { "R" },
+                            if row == -1 { "T" } else if row == 0 { "M" } else { "B" },
+                            window_x, window_y, marker);
+                    }
+                }
+
+                // Apply boundary checks and adjustments
                 let max_x = (monitor_size.width - window_width) as f64;
                 let max_y = (monitor_size.height - window_height) as f64;
+                let mut adjusted_positions = Vec::with_capacity(9);
+                let mut boundary_adjustments = 0;
 
-                let window1_final_x = window1_x.max(0.0).min(max_x);
-                let window1_final_y = window1_y.max(0.0).min(max_y);
+                eprintln!("[helper] 🔍 Applying boundary checks...");
 
-                let window2_final_x = window2_x.max(0.0).min(max_x);
-                let window2_final_y = window2_y.max(0.0).min(max_y);
+                for (window_x, window_y, row, col) in positions {
+                    let final_x = window_x.max(0.0).min(max_x);
+                    let final_y = window_y.max(0.0).min(max_y);
 
-                eprintln!("[helper] Window 1 calculated position: ({}, {})", window1_final_x, window1_final_y);
-                eprintln!("[helper] Window 2 calculated position: ({}, {})", window2_final_x, window2_final_y);
-                eprintln!("[helper] Distance between windows: {} pixels",
-                    (window2_final_x - window1_final_x).abs());
+                    let x_adjusted = (final_x != window_x);
+                    let y_adjusted = (final_y != window_y);
 
-                vec![(window1_final_x as u32, window1_final_y as u32),
-                     (window2_final_x as u32, window2_final_y as u32)]
+                    if x_adjusted || y_adjusted {
+                        boundary_adjustments += 1;
+                        eprintln!("  ⚠️  Window [{},{}] adjusted from ({}, {}) to ({}, {})",
+                            col, row, window_x, window_y, final_x, final_y);
+                    }
+
+                    adjusted_positions.push((final_x as u32, final_y as u32, row, col));
+                }
+
+                eprintln!("[helper] ✅ Grid calculation complete: {} windows, {} boundary adjustments",
+                    adjusted_positions.len(), boundary_adjustments);
+
+                adjusted_positions
             } else {
-                eprintln!("[helper] No mouse coordinates available, using center positioning for both windows");
-                // Fallback to centered positioning for both windows
+                eprintln!("[helper] No mouse coordinates available, using centered 3x3 grid");
+                // Fallback to centered 3x3 grid
                 let center_x = (monitor_size.width - window_width) / 2;
                 let center_y = (monitor_size.height - window_height) / 2;
+                let spacing = 200.0;
 
-                // Second window 200 pixels to the right
-                let center2_x = center_x + 200;
-                let max_x = monitor_size.width - window_width;
-                let center2_x = center2_x.min(max_x);
+                let mut positions = Vec::with_capacity(9);
 
-                eprintln!("[helper] Window 1 center position: ({}, {})", center_x, center_y);
-                eprintln!("[helper] Window 2 center position: ({}, {})", center2_x, center_y);
+                for row in -1..=1 {
+                    for col in -1..=1 {
+                        let window_x = center_x as f64 + col as f64 * spacing;
+                        let window_y = center_y as f64 + row as f64 * spacing;
+                        let final_x = window_x.max(0.0).min((monitor_size.width - window_width) as f64);
+                        let final_y = window_y.max(0.0).min((monitor_size.height - window_height) as f64);
+                        positions.push((final_x as u32, final_y as u32, row, col));
+                    }
+                }
 
-                vec![(center_x, center_y), (center2_x, center_y)]
+                eprintln!("[helper] ✅ Centered grid created with {} windows", positions.len());
+                positions
             };
 
-            // Create two windows
-            for (i, (window_x, window_y)) in window_positions.iter().enumerate() {
-                eprintln!("[helper] Creating Window {} at position ({}, {})", i + 1, window_x, window_y);
+            // Create 3x3 grid windows
+            for (i, (window_x, window_y, row, col)) in window_positions.iter().enumerate() {
+                let grid_pos = format!("[{},{}]", col, row);
+                let is_center = (*row == 0 && *col == 0);
+                let window_num = i + 1;
+
+                eprintln!("[helper] Creating Window {} {} at position ({}, {})",
+                    window_num, grid_pos, window_x, window_y);
 
                 let attributes = WindowAttributes::default()
-                    .with_title(format!("File Drag Monitor Helper {}", i + 1))
+                    .with_title(format!("File Drag Monitor {}", grid_pos))
                     .with_transparent(false) // 不透明，确保能接收拖拽事件
                     .with_decorations(false) // 无边框
                     .with_window_level(WindowLevel::AlwaysOnTop) // 顶层窗口，确保接收事件
@@ -122,7 +160,7 @@ impl ApplicationHandler<()> for App {
                     .with_visible(true)
                     .with_inner_size(PhysicalSize::new(window_width, window_height)) // 100x100尺寸
                     .with_position(PhysicalPosition::new(*window_x, *window_y))
-                    .with_active(i == 0); // Only first window gets focus
+                    .with_active(is_center); // Only center window gets focus
 
                 let window = event_loop.create_window(attributes).unwrap();
 
@@ -132,21 +170,21 @@ impl ApplicationHandler<()> for App {
                 self.windows.push(window);
 
                 if let Some((mouse_x, mouse_y)) = self.initial_position {
-                    eprintln!("[helper] ✓ Created Window {} at calculated position ({}, {})",
-                        i + 1, window_x, window_y);
-                    if i == 0 {
+                    if is_center {
+                        eprintln!("[helper] ✓ Created Center Window {} {} at mouse position ({}, {})",
+                            window_num, grid_pos, window_x, window_y);
                         eprintln!("[helper] ✓ Original mouse coordinates: ({}, {})", mouse_x, mouse_y);
-                        eprintln!("[helper] ✓ Window 1 offset from mouse: ({}, {})",
+                        eprintln!("[helper] ✓ Center window offset from mouse: ({}, {})",
                             *window_x as f64 - mouse_x, *window_y as f64 - mouse_y);
                     } else {
-                        let window1_pos = window_positions[0];
-                        eprintln!("[helper] ✓ Window 2 offset from Window 1: ({}, {})",
-                            *window_x as i32 - window1_pos.0 as i32,
-                            *window_y as i32 - window1_pos.1 as i32);
+                        let center_offset_x = *col as f64 * 200.0;
+                        let center_offset_y = *row as f64 * 200.0;
+                        eprintln!("[helper] ✓ Created Window {} {} at offset ({}, {}) from center",
+                            window_num, grid_pos, center_offset_x, center_offset_y);
                     }
                 } else {
-                    eprintln!("[helper] ✓ Created Window {} at centered position ({}, {}) (fallback)",
-                        i + 1, window_x, window_y);
+                    eprintln!("[helper] ✓ Created Window {} {} at centered position ({}, {}) (fallback)",
+                        window_num, grid_pos, window_x, window_y);
                 }
             }
 
@@ -158,7 +196,8 @@ impl ApplicationHandler<()> for App {
 
             // Quick startup signal - indicate windows are ready
             eprintln!("[helper] ✓ {} windows created successfully and ready for drag events", self.windows.len());
-            eprintln!("[helper] === END DUAL WINDOW CREATION DEBUG ===");
+            eprintln!("[helper] 🎯 3x3 Grid coverage: ~700x700 pixels centered on mouse position");
+            eprintln!("[helper] === END 3x3 GRID WINDOW CREATION DEBUG ===");
         }
     }
 
