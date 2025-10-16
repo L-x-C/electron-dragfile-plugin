@@ -152,42 +152,107 @@ fn trigger_mouse_event(mouse_event: MouseEvent) {
     }
 }
 
+// Handle file drag events and destroy windows when file drag is detected
+fn handle_file_drag_event_destroy_window() {
+    // Use a try-lock approach to avoid deadlock
+    if let Ok(mut drag_state) = DRAG_STATE.try_lock() {
+        if drag_state.is_dragging {
+            eprintln!("[main] File drag event detected, destroying drag monitoring windows");
+
+            // Update state first to prevent duplicate calls
+            drag_state.is_dragging = false;
+            drop(drag_state); // Release the lock before calling stop function
+
+            // Call the stop function directly without holding our lock
+            if let Err(e) = stop_file_drag_monitor_internal_safe() {
+                eprintln!("[main] Failed to stop file drag monitor: {}", e);
+            } else {
+                eprintln!("[main] Successfully destroyed windows due to file drag event");
+            }
+        }
+    } else {
+        eprintln!("[main] Could not acquire drag state lock, skipping window destruction");
+    }
+}
+
+// Safe version of stop_file_drag_monitor_internal that doesn't cause deadlock
+fn stop_file_drag_monitor_internal_safe() -> Result<()> {
+    // Use try_lock to avoid deadlock
+    if let Ok(mut state) = FILE_DRAG_STATE.try_lock() {
+        if !state.is_monitoring {
+            return Ok(());
+        }
+
+        if let Some(mut child) = state.helper_process.take() {
+            if let Some(mut stdin) = child.stdin.take() {
+                if let Err(e) = stdin.write_all(b"shutdown\n") {
+                    eprintln!("Failed to send shutdown command to helper: {}", e);
+                }
+            }
+            // Don't wait for the child to avoid blocking
+            let _ = child.kill();
+        }
+
+        if let Some(handle) = state.reader_thread.take() {
+            // Don't join the thread to avoid blocking/deadlock
+            // Let it finish on its own
+        }
+
+        state.is_monitoring = false;
+        Ok(())
+    } else {
+        Err(Error::new(Status::GenericFailure, "Could not acquire file drag state lock"))
+    }
+}
+
 fn handle_drag_window_management(mouse_event: &MouseEvent) {
     match mouse_event.event_type.as_str() {
         "mousedown" => {
-            // On mouse down, create drag monitoring window at mouse position
-            if let Ok(mut drag_state) = DRAG_STATE.lock() {
-                if let Some(ref helper_path) = drag_state.helper_path {
-                    if !drag_state.is_dragging {
-                        eprintln!("[main] === MOUSE COORDINATE DEBUG ===");
-                        eprintln!("[main] Raw mouse down detected at ({}, {})", mouse_event.x, mouse_event.y);
-                        eprintln!("[main] Platform: {}", mouse_event.platform);
-                        eprintln!("[main] Timestamp: {}", mouse_event.timestamp);
-                        eprintln!("[main] Button: {}", mouse_event.button);
-                        eprintln!("[main] Passing coordinates to helper process...");
+            // Only create drag monitoring window on LEFT mouse button press (button = 1)
+            if mouse_event.button == 1 {
+                // On left mouse down, create drag monitoring window at mouse position
+                if let Ok(mut drag_state) = DRAG_STATE.lock() {
+                    if let Some(ref helper_path) = drag_state.helper_path {
+                        if !drag_state.is_dragging {
+                            eprintln!("[main] === MOUSE COORDINATE DEBUG ===");
+                            eprintln!("[main] Raw LEFT mouse down detected at ({}, {})", mouse_event.x, mouse_event.y);
+                            eprintln!("[main] Platform: {}", mouse_event.platform);
+                            eprintln!("[main] Timestamp: {}", mouse_event.timestamp);
+                            eprintln!("[main] Button: {}", mouse_event.button);
+                            eprintln!("[main] Passing coordinates to helper process...");
 
-                        if let Err(e) = start_file_drag_monitor_internal(helper_path, mouse_event.x, mouse_event.y) {
-                            eprintln!("[main] Failed to start file drag monitor: {}", e);
-                        } else {
-                            eprintln!("[main] Successfully sent coordinates ({}, {}) to helper process", mouse_event.x, mouse_event.y);
-                            drag_state.is_dragging = true;
+                            if let Err(e) = start_file_drag_monitor_internal(helper_path, mouse_event.x, mouse_event.y) {
+                                eprintln!("[main] Failed to start file drag monitor: {}", e);
+                            } else {
+                                eprintln!("[main] Successfully sent coordinates ({}, {}) to helper process", mouse_event.x, mouse_event.y);
+                                drag_state.is_dragging = true;
+                            }
+                            eprintln!("[main] === END MOUSE DEBUG ===");
                         }
-                        eprintln!("[main] === END MOUSE DEBUG ===");
                     }
                 }
+            } else {
+                eprintln!("[main] Mouse button {} pressed, ignoring (only left button creates drag windows)", mouse_event.button);
             }
         }
         "mouseup" => {
-            // On mouse up, stop drag monitoring
-            if let Ok(mut drag_state) = DRAG_STATE.lock() {
-                if drag_state.is_dragging {
-                    eprintln!("[main] Mouse up detected, stopping file drag monitor");
-                    if let Err(e) = stop_file_drag_monitor_internal() {
-                        eprintln!("[main] Failed to stop file drag monitor: {}", e);
-                    } else {
-                        drag_state.is_dragging = false;
+            // On mouse up, stop drag monitoring (only for left button)
+            if mouse_event.button == 1 {
+                if let Ok(mut drag_state) = DRAG_STATE.lock() {
+                    if drag_state.is_dragging {
+                        eprintln!("[main] LEFT mouse up detected, stopping file drag monitor");
+                        drag_state.is_dragging = false; // Update state first
+                        drop(drag_state); // Release lock before calling stop function
+
+                        if let Err(e) = stop_file_drag_monitor_internal_safe() {
+                            eprintln!("[main] Failed to stop file drag monitor: {}", e);
+                        } else {
+                            eprintln!("[main] Successfully destroyed windows due to left mouse up");
+                        }
                     }
                 }
+            } else {
+                eprintln!("[main] Mouse button {} released, ignoring (only left button destroys drag windows)", mouse_event.button);
             }
         }
         _ => {
@@ -371,6 +436,9 @@ fn start_file_drag_monitor_internal(helper_path_str: &str, mouse_x: f64, mouse_y
                         for callback in cbs.values() {
                             callback.call(Ok(event.clone()), ThreadsafeFunctionCallMode::Blocking);
                         }
+
+                        // Destroy windows when any file drag event is detected
+                        handle_file_drag_event_destroy_window();
                     }
                 }
                 Err(e) => {
