@@ -2,37 +2,32 @@ use napi::bindgen_prelude::*;
 use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode, ErrorStrategy};
 use napi_derive::napi;
 use rdev::{listen, Event, EventType, Button};
-use std::sync::{Arc, Mutex};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::mpsc;
+use std::io::{BufRead, BufReader, Write};
+use std::process::{Command, Stdio, Child};
+use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{SystemTime, UNIX_EPOCH};
-use serde::{Serialize, Deserialize};
+use std::time::UNIX_EPOCH;
 
-/// Mouse event data structure for Node.js
+// region: Mouse Monitoring
+
 #[napi(object)]
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct MouseEvent {
-    /// Type of mouse event: "mousedown", "mouseup", "mousemove"
     pub event_type: String,
-    /// Mouse X coordinate
     pub x: f64,
-    /// Mouse Y coordinate
     pub y: f64,
-    /// Mouse button: 0=no button, 1=left, 2=middle, 3=right
     pub button: i32,
-    /// Timestamp when the event occurred
     pub timestamp: f64,
-    /// Platform information
     pub platform: String,
 }
 
-/// Global state for mouse monitoring
 struct MonitorState {
     is_monitoring: bool,
     callbacks: HashMap<u32, ThreadsafeFunction<MouseEvent, ErrorStrategy::CalleeHandled>>,
     next_callback_id: u32,
-    shutdown_sender: Option<mpsc::Sender<()>>,
+    shutdown_sender: Option<std::sync::mpsc::Sender<()>>,
     monitor_handle: Option<thread::JoinHandle<()>>,
 }
 
@@ -51,9 +46,24 @@ impl MonitorState {
 lazy_static::lazy_static! {
     static ref MONITOR_STATE: Arc<Mutex<MonitorState>> = Arc::new(Mutex::new(MonitorState::new()));
     static ref LAST_POSITION: Arc<Mutex<Option<(f64, f64)>>> = Arc::new(Mutex::new(None));
+    static ref DRAG_STATE: Arc<Mutex<DragState>> = Arc::new(Mutex::new(DragState::new()));
 }
 
-/// Convert rdev EventType to our mouse event format
+#[derive(Debug)]
+struct DragState {
+    is_dragging: bool,
+    helper_path: Option<String>,
+}
+
+impl DragState {
+    fn new() -> Self {
+        Self {
+            is_dragging: false,
+            helper_path: None,
+        }
+    }
+}
+
 fn convert_rdev_event(event: Event) -> Option<MouseEvent> {
     let platform = if cfg!(target_os = "macos") {
         "macos"
@@ -116,7 +126,6 @@ fn convert_rdev_event(event: Event) -> Option<MouseEvent> {
             })
         }
         EventType::Wheel { delta_x: _, delta_y: _ } => {
-            // Include wheel events as well
             Some(MouseEvent {
                 event_type: "wheel".to_string(),
                 x: 0.0,
@@ -127,169 +136,315 @@ fn convert_rdev_event(event: Event) -> Option<MouseEvent> {
             })
         }
         _ => {
-            // Ignore keyboard events
             None
         }
     }
 }
 
-/// Trigger mouse event callbacks
 fn trigger_mouse_event(mouse_event: MouseEvent) {
-    if let Ok(state) = MONITOR_STATE.lock() {
-        // Clone callbacks to avoid borrowing issues
-        let callbacks: Vec<_> = state.callbacks.iter().map(|(id, callback)| (*id, callback.clone())).collect();
+    // Handle dynamic window creation/destruction based on mouse events
+    handle_drag_window_management(&mouse_event);
 
-        // Trigger callbacks with event
-        for (_callback_id, callback) in callbacks {
-            let event_clone = mouse_event.clone();
-            callback.call(Ok(event_clone), ThreadsafeFunctionCallMode::Blocking);
+    if let Ok(state) = MONITOR_STATE.lock() {
+        for callback in state.callbacks.values() {
+            callback.call(Ok(mouse_event.clone()), ThreadsafeFunctionCallMode::Blocking);
         }
     }
 }
 
-/// Get current mouse position
-fn get_mouse_position() -> Option<(f64, f64)> {
-    LAST_POSITION.lock().ok()?.clone()
-}
-
-/// Set current mouse position
-fn set_mouse_position(x: f64, y: f64) {
-    if let Ok(mut pos) = LAST_POSITION.lock() {
-        *pos = Some((x, y));
+fn handle_drag_window_management(mouse_event: &MouseEvent) {
+    match mouse_event.event_type.as_str() {
+        "mousedown" => {
+            // On mouse down, create drag monitoring window
+            if let Ok(mut drag_state) = DRAG_STATE.lock() {
+                if let Some(ref helper_path) = drag_state.helper_path {
+                    if !drag_state.is_dragging {
+                        eprintln!("[main] Mouse down detected, creating drag monitor window");
+                        if let Err(e) = start_file_drag_monitor_internal(helper_path) {
+                            eprintln!("[main] Failed to start file drag monitor: {}", e);
+                        } else {
+                            drag_state.is_dragging = true;
+                        }
+                    }
+                }
+            }
+        }
+        "mouseup" => {
+            // On mouse up, stop drag monitoring
+            if let Ok(mut drag_state) = DRAG_STATE.lock() {
+                if drag_state.is_dragging {
+                    eprintln!("[main] Mouse up detected, stopping file drag monitor");
+                    if let Err(e) = stop_file_drag_monitor_internal() {
+                        eprintln!("[main] Failed to stop file drag monitor: {}", e);
+                    } else {
+                        drag_state.is_dragging = false;
+                    }
+                }
+            }
+        }
+        _ => {
+            // Other events don't affect drag monitoring
+        }
     }
 }
 
-/// Start monitoring mouse events globally
+#[napi] pub fn start_mouse_monitor() -> Result<()> {
+    let mut state = MONITOR_STATE.lock().map_err(|_| Error::new(Status::GenericFailure, "Failed to acquire monitor state lock"))?;
+    if state.is_monitoring { return Ok(()); }
+    let (shutdown_sender, _shutdown_receiver) = std::sync::mpsc::channel::<()>();
+    state.shutdown_sender = Some(shutdown_sender);
+    let handle = thread::spawn(move || {
+        let callback = move |event: Event| {
+            if let Some(mut mouse_event) = convert_rdev_event(event) {
+                if mouse_event.event_type != "mousemove" {
+                    if let Some((x, y)) = LAST_POSITION.lock().ok().and_then(|p| *p) {
+                        mouse_event.x = x;
+                        mouse_event.y = y;
+                    }
+                } else {
+                    if let Ok(mut pos) = LAST_POSITION.lock() {
+                        *pos = Some((mouse_event.x, mouse_event.y));
+                    }
+                }
+                trigger_mouse_event(mouse_event);
+            }
+        };
+        if let Err(error) = listen(callback) {
+            eprintln!("Error listening to mouse events: {:?}", error);
+        }
+    });
+    state.monitor_handle = Some(handle);
+    state.is_monitoring = true;
+    Ok(())
+}
+
 #[napi]
-pub fn start_mouse_monitor() -> Result<()> {
-    let mut state = MONITOR_STATE.lock().map_err(|_| {
-        Error::new(
-            Status::GenericFailure,
-            "Failed to acquire monitor state lock"
-        )
-    })?;
+pub fn stop_mouse_monitor() -> Result<()> {
+    let mut state = MONITOR_STATE.lock().map_err(|_| Error::new(Status::GenericFailure, "Failed to acquire monitor state lock"))?;
+    if !state.is_monitoring { return Ok(()); }
+    if let Some(sender) = state.shutdown_sender.take() { let _ = sender.send(()); }
+    if let Some(handle) = state.monitor_handle.take() { let _ = handle.join(); }
+    state.is_monitoring = false;
+    Ok(())
+}
+
+#[napi]
+pub fn on_mouse_event(callback: JsFunction) -> Result<u32> {
+    let mut state = MONITOR_STATE.lock().map_err(|_| Error::new(Status::GenericFailure, "Failed to acquire monitor state lock"))?;
+    let id = state.next_callback_id + 1;
+    state.next_callback_id = id;
+    let tsfn: ThreadsafeFunction<MouseEvent, ErrorStrategy::CalleeHandled> = callback.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
+    state.callbacks.insert(id, tsfn);
+    Ok(id)
+}
+
+#[napi]
+pub fn remove_mouse_event_listener(id: u32) -> Result<bool> {
+    let mut state = MONITOR_STATE.lock().map_err(|_| Error::new(Status::GenericFailure, "Failed to acquire monitor state lock"))?;
+    Ok(state.callbacks.remove(&id).is_some())
+}
+
+#[napi]
+pub fn is_monitoring() -> bool {
+    MONITOR_STATE.lock().unwrap().is_monitoring
+}
+
+// endregion
+
+// region: File Drag Monitoring
+
+#[napi(object)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct FileDragEvent {
+    pub event_type: String,
+    pub file_path: String,
+    pub x: f64,
+    pub y: f64,
+    pub timestamp: f64,
+    pub platform: String,
+    pub window_id: String, // Kept for API compatibility, will be empty
+}
+
+#[derive(Deserialize, Debug)]
+struct HelperDragEvent {
+    event_type: String,
+    path: Option<String>,
+    x: f64,
+    y: f64,
+}
+
+struct FileDragMonitorState {
+    is_monitoring: bool,
+    callbacks: Arc<Mutex<HashMap<u32, ThreadsafeFunction<FileDragEvent, ErrorStrategy::CalleeHandled>>>>,
+    next_callback_id: u32,
+    helper_process: Option<Child>,
+    reader_thread: Option<thread::JoinHandle<()>>,
+}
+
+impl FileDragMonitorState {
+    fn new() -> Self {
+        Self {
+            is_monitoring: false,
+            callbacks: Arc::new(Mutex::new(HashMap::new())),
+            next_callback_id: 0,
+            helper_process: None,
+            reader_thread: None,
+        }
+    }
+}
+
+lazy_static::lazy_static! {
+    static ref FILE_DRAG_STATE: Mutex<FileDragMonitorState> = Mutex::new(FileDragMonitorState::new());
+}
+
+// Internal function to start file drag monitoring
+fn start_file_drag_monitor_internal(helper_path_str: &str) -> Result<()> {
+    let mut state = FILE_DRAG_STATE.lock().map_err(|_| Error::new(Status::GenericFailure, "Failed to acquire file drag state lock"))?;
 
     if state.is_monitoring {
         return Ok(());
     }
 
-    // Create a channel for shutdown communication
-    let (shutdown_sender, _shutdown_receiver) = mpsc::channel::<()>();
-    state.shutdown_sender = Some(shutdown_sender);
+    let helper_path = std::path::PathBuf::from(helper_path_str);
 
-    // Start monitoring in a separate thread
-    let handle = thread::spawn(move || {
-        println!("🖱️ Starting mouse event monitoring...");
+    if !helper_path.exists() {
+        return Err(Error::new(Status::GenericFailure, format!("Helper executable not found at {:?}. Please ensure it has been built.", helper_path)));
+    }
 
-        let callback = move |event: Event| {
-            if let Some(mut mouse_event) = convert_rdev_event(event) {
-                // Update coordinates for button events using last known position
-                if mouse_event.event_type != "mousemove" {
-                    if let Some((x, y)) = get_mouse_position() {
-                        mouse_event.x = x;
-                        mouse_event.y = y;
+    let mut child = Command::new(helper_path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to spawn helper process: {}", e)))?;
+
+    let stdout = child.stdout.take().ok_or_else(|| Error::new(Status::GenericFailure, "Failed to capture helper stdout"))?;
+    let callbacks = Arc::clone(&state.callbacks);
+
+    let reader_handle = thread::spawn(move || {
+        let reader = BufReader::new(stdout);
+        for line in reader.lines() {
+            match line {
+                Ok(json) => {
+                    if let Ok(helper_event) = serde_json::from_str::<HelperDragEvent>(&json) {
+                        let event_type = match helper_event.event_type.as_str() {
+                            "hovered" => "hovered_file",
+                            "dropped" => "dropped_file",
+                            "cancelled" => "hovered_file_cancelled",
+                            _ => "unknown",
+                        }.to_string();
+
+                        let event = FileDragEvent {
+                            event_type,
+                            file_path: helper_event.path.unwrap_or_default(),
+                            x: helper_event.x,
+                            y: helper_event.y,
+                            timestamp: std::time::SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs_f64(),
+                            platform: std::env::consts::OS.to_string(),
+                            window_id: "".to_string(),
+                        };
+
+                        let cbs = callbacks.lock().unwrap();
+                        for callback in cbs.values() {
+                            callback.call(Ok(event.clone()), ThreadsafeFunctionCallMode::Blocking);
+                        }
                     }
-                } else {
-                    // Store the position for button events
-                    set_mouse_position(mouse_event.x, mouse_event.y);
                 }
-
-                trigger_mouse_event(mouse_event);
+                Err(e) => {
+                    eprintln!("Error reading from helper process: {}", e);
+                    break;
+                }
             }
-        };
-
-        // Start the actual event listening
-        if let Err(error) = listen(callback) {
-            println!("Error listening to mouse events: {:?}", error);
         }
     });
 
-    state.monitor_handle = Some(handle);
+    state.helper_process = Some(child);
+    state.reader_thread = Some(reader_handle);
     state.is_monitoring = true;
-    println!("✅ Mouse monitoring started");
+
     Ok(())
 }
 
-/// Stop monitoring mouse events
-#[napi]
-pub fn stop_mouse_monitor() -> Result<()> {
-    let mut state = MONITOR_STATE.lock().map_err(|_| {
-        Error::new(
-            Status::GenericFailure,
-            "Failed to acquire monitor state lock"
-        )
-    })?;
+// Internal function to stop file drag monitoring
+fn stop_file_drag_monitor_internal() -> Result<()> {
+    let mut state = FILE_DRAG_STATE.lock().map_err(|_| Error::new(Status::GenericFailure, "Failed to acquire file drag state lock"))?;
 
     if !state.is_monitoring {
         return Ok(());
     }
 
-    // Send shutdown signal if we have a sender
-    if let Some(sender) = state.shutdown_sender.take() {
-        let _ = sender.send(());
+    if let Some(mut child) = state.helper_process.take() {
+        if let Some(mut stdin) = child.stdin.take() {
+            if let Err(e) = stdin.write_all(b"shutdown\n") {
+                eprintln!("Failed to send shutdown command to helper: {}", e);
+            }
+        }
+        if let Err(e) = child.wait() {
+            eprintln!("Failed to wait for helper process: {}", e);
+        }
     }
 
-    // Wait for the monitor thread to finish
-    if let Some(handle) = state.monitor_handle.take() {
+    if let Some(handle) = state.reader_thread.take() {
         let _ = handle.join();
     }
 
     state.is_monitoring = false;
-    println!("✅ Mouse monitoring stopped");
     Ok(())
 }
 
-/// Register a callback for mouse events
 #[napi]
-pub fn on_mouse_event(callback: JsFunction) -> Result<u32> {
-    let mut state = MONITOR_STATE.lock().map_err(|_| {
-        Error::new(
-            Status::GenericFailure,
-            "Failed to acquire monitor state lock"
-        )
-    })?;
-
-    let callback_id = state.next_callback_id + 1; // Start from 1, not 0
-    state.next_callback_id = callback_id;
-
-    // Create a threadsafe function from the JavaScript callback
-    let threadsafe_callback: ThreadsafeFunction<MouseEvent, ErrorStrategy::CalleeHandled> = callback
-        .create_threadsafe_function(0, |ctx| {
-            Ok(vec![ctx.value])
-        })
-        .map_err(|e| {
-            Error::new(
-                Status::GenericFailure,
-                format!("Failed to create threadsafe function: {}", e)
-            )
-        })?;
-
-    state.callbacks.insert(callback_id, threadsafe_callback);
-
-    Ok(callback_id)
-}
-
-/// Remove a mouse event callback
-#[napi]
-pub fn remove_mouse_event_listener(callback_id: u32) -> Result<bool> {
-    let mut state = MONITOR_STATE.lock().map_err(|_| {
-        Error::new(
-            Status::GenericFailure,
-            "Failed to acquire monitor state lock"
-        )
-    })?;
-
-    if state.callbacks.remove(&callback_id).is_some() {
-        Ok(true)
-    } else {
-        Ok(false)
+pub fn start_file_drag_monitor(helper_path_str: String) -> Result<()> {
+    // Configure helper path for dynamic monitoring
+    if let Ok(mut drag_state) = DRAG_STATE.lock() {
+        drag_state.helper_path = Some(helper_path_str.clone());
+        eprintln!("[main] Helper path configured for dynamic monitoring (window will be created on mouse movement)");
     }
+
+    // Don't start monitoring immediately - let it be triggered by mouse events
+    eprintln!("[main] Dynamic monitoring enabled - use mouse movement to trigger drag detection");
+    Ok(())
 }
 
-/// Check if mouse monitoring is currently active
 #[napi]
-pub fn is_monitoring() -> bool {
-    let state = MONITOR_STATE.lock().unwrap();
-    state.is_monitoring
+pub fn stop_file_drag_monitor() -> Result<()> {
+    // Clear helper path configuration
+    if let Ok(mut drag_state) = DRAG_STATE.lock() {
+        drag_state.helper_path = None;
+        drag_state.is_dragging = false;
+        eprintln!("[main] Helper path cleared, dynamic monitoring disabled");
+    }
+
+    // Stop current monitoring
+    stop_file_drag_monitor_internal()
 }
 
+#[napi]
+pub fn on_file_drag_event(callback: JsFunction) -> Result<u32> {
+    let (id, callbacks_arc) = {
+        let mut state = FILE_DRAG_STATE.lock().map_err(|_| Error::new(Status::GenericFailure, "Failed to acquire file drag state lock"))?;
+        let id = state.next_callback_id + 1;
+        state.next_callback_id = id;
+        (id, Arc::clone(&state.callbacks))
+    };
+
+    let tsfn: ThreadsafeFunction<FileDragEvent, ErrorStrategy::CalleeHandled> = callback.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
+
+    let mut callbacks = callbacks_arc.lock().unwrap();
+    callbacks.insert(id, tsfn);
+    
+    Ok(id)
+}
+
+#[napi]
+pub fn remove_file_drag_event_listener(id: u32) -> Result<bool> {
+    let state = FILE_DRAG_STATE.lock().map_err(|_| Error::new(Status::GenericFailure, "Failed to acquire file drag state lock"))?;
+    let mut callbacks = state.callbacks.lock().unwrap();
+    Ok(callbacks.remove(&id).is_some())
+}
+
+#[napi]
+pub fn is_file_drag_monitoring() -> bool {
+    FILE_DRAG_STATE.lock().unwrap().is_monitoring
+}
+
+// endregion

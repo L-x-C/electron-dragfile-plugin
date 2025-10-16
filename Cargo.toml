@@ -30,5 +30,12 @@ serde_json = "1.0"
 # Static variables
 lazy_static = "1.4"
 
+# Window management and drag-and-drop
+winit = "0.30.12"
+
+[[bin]]
+name = "drag-monitor-helper"
+path = "src/bin/drag-monitor-helper.rs"
+
 [build-dependencies]
 napi-build = "2"
