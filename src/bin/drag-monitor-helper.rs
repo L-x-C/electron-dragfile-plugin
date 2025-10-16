@@ -19,14 +19,14 @@ struct DragEvent {
 
 #[derive(Default)]
 struct App {
-    window: Option<Window>,
+    windows: Vec<Window>,
     cursor_position: (f64, f64),
     initial_position: Option<(f64, f64)>,
 }
 
 impl ApplicationHandler<()> for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        if self.window.is_none() {
+        if self.windows.is_empty() {
             eprintln!("[helper] === WINDOW CREATION DEBUG ===");
 
             // Get the primary monitor's dimensions
@@ -52,115 +52,113 @@ impl ApplicationHandler<()> for App {
             let window_height = 100;
             eprintln!("[helper] Window dimensions: {}x{}", window_width, window_height);
 
-            // Calculate window position - either at mouse coordinates or centered
-            let (window_x, window_y) = if let Some((mouse_x, mouse_y)) = self.initial_position {
-                eprintln!("[helper] Using mouse coordinates: ({}, {})", mouse_x, mouse_y);
+            // Calculate positions for two windows
+            let window_positions = if let Some((mouse_x, mouse_y)) = self.initial_position {
+                eprintln!("[helper] 🎯 DUAL WINDOW MODE - Using mouse coordinates: ({}, {})", mouse_x, mouse_y);
 
-                // TESTING: Try different positioning strategies
-                // Strategy 1: Direct positioning (no offset) - window top-left at mouse
-                let strategy1_x = mouse_x;
-                let strategy1_y = mouse_y;
-
-                // Strategy 2: Centered positioning (current approach) - window center at mouse
-                let half_width = window_width as f64 / 2.0;
-                let half_height = window_height as f64 / 2.0;
-                let strategy2_x = mouse_x - half_width;
-                let strategy2_y = mouse_y - half_height;
-
-                // Strategy 3: Small offset - slight offset from mouse for better visibility
-                let offset = 10.0;
-                let strategy3_x = mouse_x - offset;
-                let strategy3_y = mouse_y - offset;
-
-                eprintln!("[helper] Testing positioning strategies:");
-                eprintln!("[helper] Strategy 1 (direct): ({}, {})", strategy1_x, strategy1_y);
-                eprintln!("[helper] Strategy 2 (centered): ({}, {})", strategy2_x, strategy2_y);
-                eprintln!("[helper] Strategy 3 (offset): ({}, {})", strategy3_x, strategy3_y);
-
-                // CRITICAL FIX: Apply scale factor for HiDPI displays
+                // Apply scale factor for HiDPI displays
                 // rdev returns logical coordinates, but winit needs physical coordinates
-                let scaled_strategy1_x = strategy1_x * scale_factor;
-                let scaled_strategy1_y = strategy1_y * scale_factor;
+                let scaled_mouse_x = mouse_x * scale_factor;
+                let scaled_mouse_y = mouse_y * scale_factor;
 
                 eprintln!("[helper] 🎯 SCALE FACTOR FIX DETECTED!");
-                eprintln!("[helper] Original logical coordinates: ({}, {})", strategy1_x, strategy1_y);
+                eprintln!("[helper] Original logical coordinates: ({}, {})", mouse_x, mouse_y);
                 eprintln!("[helper] Scale factor: {}", scale_factor);
-                eprintln!("[helper] Scaled physical coordinates: ({}, {})", scaled_strategy1_x, scaled_strategy1_y);
+                eprintln!("[helper] Scaled physical coordinates: ({}, {})", scaled_mouse_x, scaled_mouse_y);
 
-                let x_before_clamp = scaled_strategy1_x;
-                let y_before_clamp = scaled_strategy1_y;
+                // Window 1: Direct positioning at mouse position
+                let window1_x = scaled_mouse_x;
+                let window1_y = scaled_mouse_y;
 
-                eprintln!("[helper] Using scaled coordinates for window positioning");
-                eprintln!("[helper] Position before clamping: ({}, {})", x_before_clamp, y_before_clamp);
+                // Window 2: 200 pixels to the right of Window 1
+                let window2_x = scaled_mouse_x + 200.0;
+                let window2_y = scaled_mouse_y;
 
-                let x = x_before_clamp.max(0.0);
-                let y = y_before_clamp.max(0.0);
-
-                eprintln!("[helper] Position after min clamp: ({}, {})", x, y);
-
-                // Ensure window doesn't go off screen
+                // Apply boundary checks for both windows
                 let max_x = (monitor_size.width - window_width) as f64;
                 let max_y = (monitor_size.height - window_height) as f64;
 
-                eprintln!("[helper] Maximum allowed position: ({}, {})", max_x, max_y);
+                let window1_final_x = window1_x.max(0.0).min(max_x);
+                let window1_final_y = window1_y.max(0.0).min(max_y);
 
-                let x_final = x.min(max_x);
-                let y_final = y.min(max_y);
+                let window2_final_x = window2_x.max(0.0).min(max_x);
+                let window2_final_y = window2_y.max(0.0).min(max_y);
 
-                eprintln!("[helper] Final calculated position: ({}, {})", x_final, y_final);
-                eprintln!("[helper] Position difference from mouse: ({}, {})",
-                    x_final - mouse_x, y_final - mouse_y);
+                eprintln!("[helper] Window 1 calculated position: ({}, {})", window1_final_x, window1_final_y);
+                eprintln!("[helper] Window 2 calculated position: ({}, {})", window2_final_x, window2_final_y);
+                eprintln!("[helper] Distance between windows: {} pixels",
+                    (window2_final_x - window1_final_x).abs());
 
-                (x_final as u32, y_final as u32)
+                vec![(window1_final_x as u32, window1_final_y as u32),
+                     (window2_final_x as u32, window2_final_y as u32)]
             } else {
-                eprintln!("[helper] No mouse coordinates available, using center positioning");
-                // Fallback to centered positioning
+                eprintln!("[helper] No mouse coordinates available, using center positioning for both windows");
+                // Fallback to centered positioning for both windows
                 let center_x = (monitor_size.width - window_width) / 2;
                 let center_y = (monitor_size.height - window_height) / 2;
-                eprintln!("[helper] Center position calculated: ({}, {})", center_x, center_y);
-                (center_x, center_y)
+
+                // Second window 200 pixels to the right
+                let center2_x = center_x + 200;
+                let max_x = monitor_size.width - window_width;
+                let center2_x = center2_x.min(max_x);
+
+                eprintln!("[helper] Window 1 center position: ({}, {})", center_x, center_y);
+                eprintln!("[helper] Window 2 center position: ({}, {})", center2_x, center_y);
+
+                vec![(center_x, center_y), (center2_x, center_y)]
             };
 
-            eprintln!("[helper] Final window position: ({}, {})", window_x, window_y);
+            // Create two windows
+            for (i, (window_x, window_y)) in window_positions.iter().enumerate() {
+                eprintln!("[helper] Creating Window {} at position ({}, {})", i + 1, window_x, window_y);
 
-            // Create a small window positioned at mouse click location (or center as fallback)
-            let attributes = WindowAttributes::default()
-                .with_title("File Drag Monitor Helper")
-                .with_transparent(false) // 不透明，确保能接收拖拽事件
-                .with_decorations(false) // 无边框
-                .with_window_level(WindowLevel::AlwaysOnTop) // 顶层窗口，确保接收事件
-                .with_resizable(false)
-                .with_enabled_buttons(WindowButtons::empty()) // 无窗口按钮
-                .with_visible(true)
-                .with_inner_size(PhysicalSize::new(window_width, window_height)) // 100x100尺寸
-                .with_position(PhysicalPosition::new(window_x, window_y)) // 鼠标点击位置或屏幕中央
-                .with_active(true); // 获得焦点，才能接收拖拽事件
+                let attributes = WindowAttributes::default()
+                    .with_title(format!("File Drag Monitor Helper {}", i + 1))
+                    .with_transparent(false) // 不透明，确保能接收拖拽事件
+                    .with_decorations(false) // 无边框
+                    .with_window_level(WindowLevel::AlwaysOnTop) // 顶层窗口，确保接收事件
+                    .with_resizable(false)
+                    .with_enabled_buttons(WindowButtons::empty()) // 无窗口按钮
+                    .with_visible(true)
+                    .with_inner_size(PhysicalSize::new(window_width, window_height)) // 100x100尺寸
+                    .with_position(PhysicalPosition::new(*window_x, *window_y))
+                    .with_active(i == 0); // Only first window gets focus
 
-            let window = event_loop.create_window(attributes).unwrap();
+                let window = event_loop.create_window(attributes).unwrap();
 
-            // Request the window to be as unobtrusive as possible
-            window.set_cursor_visible(false);
+                // Request the window to be as unobtrusive as possible
+                window.set_cursor_visible(false);
+
+                self.windows.push(window);
+
+                if let Some((mouse_x, mouse_y)) = self.initial_position {
+                    eprintln!("[helper] ✓ Created Window {} at calculated position ({}, {})",
+                        i + 1, window_x, window_y);
+                    if i == 0 {
+                        eprintln!("[helper] ✓ Original mouse coordinates: ({}, {})", mouse_x, mouse_y);
+                        eprintln!("[helper] ✓ Window 1 offset from mouse: ({}, {})",
+                            *window_x as f64 - mouse_x, *window_y as f64 - mouse_y);
+                    } else {
+                        let window1_pos = window_positions[0];
+                        eprintln!("[helper] ✓ Window 2 offset from Window 1: ({}, {})",
+                            *window_x as i32 - window1_pos.0 as i32,
+                            *window_y as i32 - window1_pos.1 as i32);
+                    }
+                } else {
+                    eprintln!("[helper] ✓ Created Window {} at centered position ({}, {}) (fallback)",
+                        i + 1, window_x, window_y);
+                }
+            }
 
             // Platform-specific information
             #[cfg(target_os = "macos")]
             {
-                eprintln!("[helper] macOS window created - transparency should minimize focus impact");
+                eprintln!("[helper] macOS windows created - transparency should minimize focus impact");
             }
 
-            if let Some((mouse_x, mouse_y)) = self.initial_position {
-                eprintln!("[helper] ✓ Created 100x100 window at calculated position ({}, {})", window_x, window_y);
-                eprintln!("[helper] ✓ Original mouse coordinates: ({}, {})", mouse_x, mouse_y);
-                eprintln!("[helper] ✓ Window offset from mouse: ({}, {})",
-                    window_x as f64 - mouse_x, window_y as f64 - mouse_y);
-            } else {
-                eprintln!("[helper] ✓ Created 100x100 centered window at position ({}, {}) (fallback)", window_x, window_y);
-            }
-
-            // Quick startup signal - indicate window is ready
-            eprintln!("[helper] ✓ Window created successfully and ready for drag events");
-            eprintln!("[helper] === END WINDOW CREATION DEBUG ===");
-
-            self.window = Some(window);
+            // Quick startup signal - indicate windows are ready
+            eprintln!("[helper] ✓ {} windows created successfully and ready for drag events", self.windows.len());
+            eprintln!("[helper] === END DUAL WINDOW CREATION DEBUG ===");
         }
     }
 
