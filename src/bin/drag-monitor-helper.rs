@@ -47,9 +47,9 @@ impl ApplicationHandler<()> for App {
             let position = primary_monitor.position();
             eprintln!("[helper] Monitor position: ({}, {})", position.x, position.y);
 
-            // Create a 100x100 window
-            let window_width = 100;
-            let window_height = 100;
+            // Create a 10x10 window
+            let window_width = 10;
+            let window_height = 10;
             eprintln!("[helper] Window dimensions: {}x{}", window_width, window_height);
 
             // Calculate positions for 3x3 grid windows
@@ -67,7 +67,7 @@ impl ApplicationHandler<()> for App {
                 eprintln!("[helper] Scaled physical coordinates: ({}, {})", scaled_mouse_x, scaled_mouse_y);
 
                 // Calculate grid positions (3x3 = 9 windows)
-                let spacing = 200.0; // 200 pixels between windows
+                let spacing = 50.0; // 50 pixels between windows for small windows
                 let mut positions = Vec::with_capacity(9);
 
                 eprintln!("[helper] 📐 Calculating 3x3 grid positions with {}px spacing", spacing);
@@ -123,7 +123,7 @@ impl ApplicationHandler<()> for App {
                 // Fallback to centered 3x3 grid
                 let center_x = (monitor_size.width - window_width) / 2;
                 let center_y = (monitor_size.height - window_height) / 2;
-                let spacing = 200.0;
+                let spacing = 50.0; // 50 pixels between windows for small windows
 
                 let mut positions = Vec::with_capacity(9);
 
@@ -177,8 +177,8 @@ impl ApplicationHandler<()> for App {
                         eprintln!("[helper] ✓ Center window offset from mouse: ({}, {})",
                             *window_x as f64 - mouse_x, *window_y as f64 - mouse_y);
                     } else {
-                        let center_offset_x = *col as f64 * 200.0;
-                        let center_offset_y = *row as f64 * 200.0;
+                        let center_offset_x = *col as f64 * 50.0;
+                        let center_offset_y = *row as f64 * 50.0;
                         eprintln!("[helper] ✓ Created Window {} {} at offset ({}, {}) from center",
                             window_num, grid_pos, center_offset_x, center_offset_y);
                     }
@@ -196,7 +196,7 @@ impl ApplicationHandler<()> for App {
 
             // Quick startup signal - indicate windows are ready
             eprintln!("[helper] ✓ {} windows created successfully and ready for drag events", self.windows.len());
-            eprintln!("[helper] 🎯 3x3 Grid coverage: ~700x700 pixels centered on mouse position");
+            eprintln!("[helper] 🎯 3x3 Grid coverage: ~130x130 pixels centered on mouse position (with 50px spacing)");
             eprintln!("[helper] === END 3x3 GRID WINDOW CREATION DEBUG ===");
         }
     }
