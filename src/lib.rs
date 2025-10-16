@@ -155,16 +155,24 @@ fn trigger_mouse_event(mouse_event: MouseEvent) {
 fn handle_drag_window_management(mouse_event: &MouseEvent) {
     match mouse_event.event_type.as_str() {
         "mousedown" => {
-            // On mouse down, create drag monitoring window
+            // On mouse down, create drag monitoring window at mouse position
             if let Ok(mut drag_state) = DRAG_STATE.lock() {
                 if let Some(ref helper_path) = drag_state.helper_path {
                     if !drag_state.is_dragging {
-                        eprintln!("[main] Mouse down detected, creating drag monitor window");
-                        if let Err(e) = start_file_drag_monitor_internal(helper_path) {
+                        eprintln!("[main] === MOUSE COORDINATE DEBUG ===");
+                        eprintln!("[main] Raw mouse down detected at ({}, {})", mouse_event.x, mouse_event.y);
+                        eprintln!("[main] Platform: {}", mouse_event.platform);
+                        eprintln!("[main] Timestamp: {}", mouse_event.timestamp);
+                        eprintln!("[main] Button: {}", mouse_event.button);
+                        eprintln!("[main] Passing coordinates to helper process...");
+
+                        if let Err(e) = start_file_drag_monitor_internal(helper_path, mouse_event.x, mouse_event.y) {
                             eprintln!("[main] Failed to start file drag monitor: {}", e);
                         } else {
+                            eprintln!("[main] Successfully sent coordinates ({}, {}) to helper process", mouse_event.x, mouse_event.y);
                             drag_state.is_dragging = true;
                         }
+                        eprintln!("[main] === END MOUSE DEBUG ===");
                     }
                 }
             }
@@ -298,25 +306,40 @@ lazy_static::lazy_static! {
 }
 
 // Internal function to start file drag monitoring
-fn start_file_drag_monitor_internal(helper_path_str: &str) -> Result<()> {
+fn start_file_drag_monitor_internal(helper_path_str: &str, mouse_x: f64, mouse_y: f64) -> Result<()> {
+    eprintln!("[main] === HELPER PROCESS DEBUG ===");
+    eprintln!("[main] start_file_drag_monitor_internal called with coordinates: ({}, {})", mouse_x, mouse_y);
+    eprintln!("[main] Helper path: {}", helper_path_str);
+
     let mut state = FILE_DRAG_STATE.lock().map_err(|_| Error::new(Status::GenericFailure, "Failed to acquire file drag state lock"))?;
 
     if state.is_monitoring {
+        eprintln!("[main] Already monitoring, returning early");
         return Ok(());
     }
 
     let helper_path = std::path::PathBuf::from(helper_path_str);
 
     if !helper_path.exists() {
+        eprintln!("[main] Helper executable not found at: {:?}", helper_path);
         return Err(Error::new(Status::GenericFailure, format!("Helper executable not found at {:?}. Please ensure it has been built.", helper_path)));
     }
 
+    let x_str = mouse_x.to_string();
+    let y_str = mouse_y.to_string();
+    eprintln!("[main] About to spawn helper with args: [\"{}\", \"{}\"]", x_str, y_str);
+
     let mut child = Command::new(helper_path)
+        .arg(&x_str)
+        .arg(&y_str)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
         .spawn()
         .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to spawn helper process: {}", e)))?;
+
+    eprintln!("[main] Helper process spawned successfully with PID: {:?}", child.id());
+    eprintln!("[main] === END HELPER DEBUG ===");
 
     let stdout = child.stdout.take().ok_or_else(|| Error::new(Status::GenericFailure, "Failed to capture helper stdout"))?;
     let callbacks = Arc::clone(&state.callbacks);
