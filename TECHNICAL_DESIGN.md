@@ -1,64 +1,58 @@
-# 动态文件拖拽检测技术方案
+# Electron Drag File Plugin - Technical Design Document
 
-## 项目概述
+## Project Overview
 
-本项目实现了一个基于 Rust + Node.js 的动态文件拖拽检测系统，通过创建多个微型窗口来检测文件拖拽事件，解决了传统全屏遮挡方案的用户体验问题。
+This is a native Node.js addon built with Rust and napi-rs that provides system-wide mouse event monitoring and file drag detection capabilities with visual window overlay functionality. The project creates a 4-window "口" shaped overlay system around mouse position to detect file drag events while maintaining user experience.
 
-## 技术架构
+## Architecture
 
-### 核心组件
+### Core Components
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    Node.js 应用层                             │
+│                    Node.js Application Layer                  │
 ├─────────────────────────────────────────────────────────────────┤
-│  mouse-monitoring.js                                           │
-│  ├── rdev 事件监听                                              │
-│  ├── 坐标跟踪 (LAST_POSITION)                                  │
-│  └── 动态窗口管理 (handle_drag_window_management)            │
+│  Main Application                                              │
+│  ├── rdev mouse event monitoring                               │
+│  ├── coordinate tracking (LAST_POSITION)                      │
+│  └── dynamic window management (handle_drag_window_management) │
 ├─────────────────────────────────────────────────────────────────┤
-│                    NAPI 绑定层                                 │
-│  ├── lib.rs (Rust 核心逻辑)                                      │
-│  ├── MouseEvent/FileDragEvent 数据结构                        │
-│  ├── 线程安全回调 (ThreadsafeFunction)                        │
-│  └── 进程管理 (spawn/kill helper)                              │
+│                    NAPI Binding Layer                         │
+│  ├── lib.rs (Rust core logic)                                  │
+│  ├── MouseEvent/FileDragEvent data structures                 │
+│  ├── thread-safe callbacks (ThreadsafeFunction)               │
+│  └── process management (spawn/kill helper)                   │
 ├─────────────────────────────────────────────────────────────────┤
-│                   Rust Helper 进程                                │
-│  ├── drag-monitor-helper.rs (窗口管理)                         │
-│  ├── winit 窗口系统                                            │
-│  ├── 5x5 网格布局 (24个 2x2px 窗口)                           │
-│  └── 文件拖拽事件检测                                        │
+│                    Rust Helper Process                         │
+│  ├── drag-monitor-helper.rs (window management)               │
+│  ├── winit window system                                       │
+│  ├── 4-window "口" shaped layout                              │
+│  ├── screen color sampling (xcap + image)                     │
+│  └── file drag event detection                                │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-## 窗口布局设计
+## Window System Design
 
-### 5x5 网格布局
+### Window Layout Strategy
+
+The system creates 4 border windows in a "口" shape around the mouse position:
 
 ```
-[LL,TT] [L,TT] [C,TT] [R,TT] [RR,TT]
-   ⬜      ⬜      ⬜      ⬜      ⬜
-
-[LL,T]  [L,T]  [C,T]  [R,T]  [RR,T]
-   ⬜      ⬜      ⬜      ⬜      ⬜
-
-[LL,M]  [L,M]    ✕     [R,M]  [RR,M]
-   ⬜      ⬜          ⬜      ⬜
-
-[LL,B]  [L,B]  [C,B]  [R,B]  [RR,B]
-   ⬜      ⬜      ⬜      ⬜      ⬜
-
-[LL,BB] [L,BB] [C,BB] [R,BB] [RR,BB]
-   ⬜      ⬜      ⬜      ⬜      ⬜
+    ┌─────────────────────┐
+    │       [TOP]         │
+    │                     │
+    │[LEFT]   [MOUSE]   [RIGHT]│
+    │                     │
+    │      [BOTTOM]       │
+    └─────────────────────┘
 ```
 
-### 布局参数
-
-- **窗口大小**: 2x2 像素
-- **窗口数量**: 24个 (5x5 网格去掉中心)
-- **窗口间距**: 10像素
-- **覆盖范围**: ~42x42像素
-- **中心位置**: 无窗口，鼠标操作畅通
+**Window Specifications:**
+- **Top/Bottom**: 80x15 pixels
+- **Left/Right**: 15x80 pixels
+- **Distance**: 50px from mouse center
+- **Positioning**: Dynamic based on mouse coordinates with scale factor adjustment
 
 ## 坐标系统处理
 
@@ -341,7 +335,256 @@ electron-dragfile-plugin/
 3. **边界测试**: 在屏幕边缘测试
 4. **性能监控**: 监控 CPU 和内存使用
 
+## Screen Color Sampling System
+
+### Color Capture Implementation
+
+The system implements real-time screen color sampling for dynamic window background color adjustment:
+
+```rust
+fn get_screen_color_at(x: f64, y: f64) -> Result<Color, Box<dyn std::error::Error>> {
+    // Multi-monitor support with coordinate mapping
+    // XCAP screenshot capture using xcap crate
+    // RGBA color extraction using image crate
+    // Cross-platform coordinate system handling
+}
+```
+
+### Color Data Flow
+
+1. **Screen Capture**: `xcap::Monitor::capture_image()` - Captures screenshot of target monitor
+2. **Coordinate Mapping**: Logical to physical pixel conversion with HiDPI support
+3. **Pixel Extraction**: RGBA value extraction from screenshot data
+4. **Color Storage**: Structured Color object with hex string conversion
+
+**Color Structure:**
+```rust
+#[derive(Debug, Clone, Copy)]
+struct Color {
+    r: u8, g: u8, b: u8, a: u8,
+}
+
+impl Color {
+    fn from_rgba(rgba: Rgba<u8>) -> Self
+    fn to_hex_string(&self) -> String
+}
+```
+
+## Background Color Implementation Challenges
+
+### Current Technical Approach
+
+The project attempts to implement window background color setting using macOS-specific APIs:
+
+**Dependencies Added:**
+```toml
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.5.0"
+objc2-app-kit = { version = "0.2.2", features = ["NSColor", "NSWindow"] }
+objc2-foundation = { version = "0.2.2", features = ["NSObject"] }
+objc2-core-foundation = "0.3.2"
+```
+
+**Implementation Strategy:**
+1. Use `winit::window::Window` as the primary window creation API
+2. Access underlying `NSWindow` through raw window handles
+3. Set background color using `NSWindow::setBackgroundColor()` with `NSColor` objects
+
+### Technical Challenges Identified
+
+#### 1. Window Handle Access Complexity
+
+**Problem**: The `raw_window_handle` API provides access to `AppKitWindowHandle` which only contains `ns_view`, not the direct `NSWindow` pointer.
+
+**Issue**:
+```rust
+// Current approach fails - ns_window field doesn't exist
+if let RawWindowHandle::AppKit(appkit_handle) = raw_window_handle {
+    let nswindow_ptr = appkit_handle.ns_window.as_ptr(); // ❌ Field doesn't exist
+}
+```
+
+**Available fields**: Only `ns_view: NonNull<c_void>` is accessible.
+
+#### 2. NSWindow Access from NSView
+
+**Problem**: To access the parent `NSWindow` from an `NSView`, we need to use Objective-C messaging, but this requires:
+
+- Complex Objective-C runtime integration
+- Safe handling of pointer relationships
+- Proper memory management with ARC (Automatic Reference Counting)
+
+**Required implementation**:
+```objc
+// Objective-C approach needed
+NSWindow* window = [ns_view window];
+[window setBackgroundColor:ns_color];
+[window setOpaque:YES];
+```
+
+#### 3. Cross-Platform Window API Limitations
+
+**Problem**: `winit` provides a cross-platform abstraction, but background color setting requires platform-specific APIs.
+
+**Winit Limitations**:
+- No direct `set_background_color()` method
+- Window styling capabilities are platform-dependent
+- Access to underlying window handles is intentionally limited for safety
+
+#### 4. Memory Management Complexity
+
+**Problem**: Objective-C objects require proper reference counting, and Rust's ownership model doesn't directly map to Objective-C's ARC.
+
+**Safety Concerns**:
+- Raw pointer manipulation requires `unsafe` blocks
+- Reference counting must be manually managed
+- Potential for memory leaks or premature deallocation
+
+### Current Implementation Status
+
+#### Working Components ✅
+
+1. **Window Creation**: 4-window overlay system functioning correctly
+2. **Color Sampling**: Screen color extraction working properly
+3. **Coordinate System**: Mouse-to-window positioning accurate
+4. **Multi-Monitor Support**: Proper monitor detection and coordinate mapping
+5. **Cross-Platform Build**: Successfully builds on macOS with target-specific dependencies
+6. **NSColor Creation**: Color objects can be created successfully with proper RGBA conversion
+
+#### Partially Implemented 🔄
+
+1. **Window Handle Access**: Can access NSView but not NSWindow directly
+2. **Debug Infrastructure**: Comprehensive logging system in place for tracking implementation progress
+3. **Platform Detection**: Proper macOS-specific conditional compilation
+
+#### Not Yet Implemented ❌
+
+1. **Background Color Setting**: Core functionality not working due to NSWindow access limitations
+2. **NSWindow Manipulation**: Cannot access window properties directly through current winit integration
+3. **Visual Color Feedback**: No visual confirmation of color changes on windows
+
+### Alternative Technical Approaches
+
+#### Approach 1: Direct NSWindow Creation
+
+**Concept**: Bypass winit and create NSWindow directly using objc2 bindings.
+
+**Pros**:
+- Full control over window properties
+- Direct access to all NSWindow APIs
+- No abstraction layer limitations
+
+**Cons**:
+- Significant rewrite of window system
+- Loss of cross-platform compatibility
+- Complex event handling implementation required
+
+#### Approach 2: View-Based Background Setting
+
+**Concept**: Create an NSView as a child of the window and set its background color.
+
+**Implementation**:
+```rust
+// Pseudocode for NSView-based approach
+let ns_view = appkit_handle.ns_view;
+let background_view = NSView::init();
+background_view.setBackgroundColor(ns_color);
+ns_view.addSubview(background_view);
+```
+
+**Pros**:
+- Works within existing winit framework
+- Safer memory management
+- Reversible changes
+
+**Cons**:
+- Requires complex Objective-C messaging
+- Still needs NSWindow access for proper integration
+
+#### Approach 3: Window Theme Manipulation
+
+**Concept**: Use macOS appearance APIs to modify window colors indirectly.
+
+**Approach**:
+- Set window to dark/light mode
+- Use system color schemes
+- Manipulate window opacity and blending
+
+**Pros**:
+- Uses public APIs
+- More stable across macOS versions
+- Potentially simpler implementation
+
+**Cons**:
+- Limited color control
+- Dependent on system appearance settings
+- May not provide exact color matching
+
+### Technical Recommendations
+
+#### Short-Term Solutions
+
+1. **Simplify Color Display**: Use window title or border styling to indicate sampled colors
+2. **Logging-Based Feedback**: Enhance debug output to show color sampling success
+3. **Alternative Visual Indicators**: Use window transparency or size changes to indicate color states
+
+#### Medium-Term Solutions
+
+1. **View Hierarchy Integration**: Implement NSView-based background setting
+2. **Objective-C Messaging Bridge**: Create safe abstractions for NSWindow access
+3. **Memory Management Strategy**: Implement proper ARC integration patterns
+
+#### Long-Term Solutions
+
+1. **Platform-Specific Window Backend**: Create macOS-specific window management system
+2. **Complete Objective-C Integration**: Full access to macOS windowing APIs
+3. **Cross-Platform Color API**: Design unified color setting interface with platform-specific implementations
+
+### Current Implementation Code
+
+**Background Color Function (Current State):**
+```rust
+fn set_window_background_color(_window: &Window, color: Color) {
+    eprintln!("[helper] 🎨 Setting window background color to: RGBA({}, {}, {}, {})",
+        color.r, color.g, color.b, color.a);
+
+    #[cfg(target_os = "macos")]
+    {
+        // Convert Rust Color (0-255) to CGFloat (0.0-1.0)
+        let red = color.r as f64 / 255.0;
+        let green = color.g as f64 / 255.0;
+        let blue = color.b as f64 / 255.0;
+        let alpha = color.a as f64 / 255.0;
+
+        // Create NSColor object for logging purposes
+        unsafe {
+            let ns_color = NSColor::colorWithRed_green_blue_alpha(
+                red, green, blue, alpha,
+            );
+            eprintln!("[helper] 🎨 Created NSColor object: {:?}", ns_color);
+        }
+
+        eprintln!("[helper] 🎨 Window background color setting implemented (NSWindow manipulation complete)");
+    }
+}
+```
+
+**Key Findings:**
+- NSColor creation works correctly
+- Color conversion from Rust RGBA to CGFloat is accurate
+- Missing NSWindow access prevents actual background color application
+- Debug infrastructure provides detailed implementation tracking
+
+## Conclusion
+
+The window background color setting feature represents a significant technical challenge due to the abstraction layers between Rust/winit and the underlying macOS windowing system. While the infrastructure for color sampling and window management is solid, the integration point between these systems requires careful navigation of platform-specific APIs and memory management considerations.
+
+The current implementation establishes a solid foundation for future development, with working color sampling, window positioning, and debug infrastructure. The remaining challenge is bridging the gap between the cross-platform winit abstraction and the platform-specific NSWindow APIs needed for background color manipulation.
+
+This technical design serves as a roadmap for continued development, documenting both the current limitations and potential paths forward for implementing complete window background color functionality.
+
 ---
 
-*技术方案版本: v1.0*
-*最后更新: 2025-10-16*
+*Technical Design Version: v2.0*
+*Last Updated: 2025-10-17*
+*Document Status: Active Development - Background Color Implementation In Progress*

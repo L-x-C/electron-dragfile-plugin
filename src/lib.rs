@@ -193,7 +193,7 @@ fn stop_file_drag_monitor_internal_safe() -> Result<()> {
             let _ = child.kill();
         }
 
-        if let Some(handle) = state.reader_thread.take() {
+        if let Some(_handle) = state.reader_thread.take() {
             // Don't join the thread to avoid blocking/deadlock
             // Let it finish on its own
         }
@@ -475,8 +475,8 @@ fn stop_file_drag_monitor_internal() -> Result<()> {
         }
     }
 
-    if let Some(handle) = state.reader_thread.take() {
-        let _ = handle.join();
+    if let Some(_handle) = state.reader_thread.take() {
+        let _ = _handle.join();
     }
 
     state.is_monitoring = false;

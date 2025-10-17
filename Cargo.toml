@@ -33,6 +33,19 @@ lazy_static = "1.4"
 # Window management and drag-and-drop
 winit = "0.30.12"
 
+# Screen capture for color detection
+xcap = { version = "0.7.1", features = ["image"] }
+
+# Image processing for color extraction
+image = "0.24.7"
+
+# macOS-specific window background color setting
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.5.0"
+objc2-app-kit = { version = "0.2.2", features = ["NSColor", "NSWindow"] }
+objc2-foundation = { version = "0.2.2", features = ["NSObject"] }
+objc2-core-foundation = "0.3.2"
+
 [[bin]]
 name = "drag-monitor-helper"
 path = "src/bin/drag-monitor-helper.rs"
