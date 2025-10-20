@@ -4,13 +4,11 @@ use napi_derive::napi;
 use rdev::{listen, Event, EventType, Button};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader, Write};
-use std::process::{Command, Stdio, Child};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::UNIX_EPOCH;
 
-// region: Mouse Monitoring
+// region: Mouse Monitoring (保留原有鼠标监听功能)
 
 #[napi(object)]
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -46,22 +44,6 @@ impl MonitorState {
 lazy_static::lazy_static! {
     static ref MONITOR_STATE: Arc<Mutex<MonitorState>> = Arc::new(Mutex::new(MonitorState::new()));
     static ref LAST_POSITION: Arc<Mutex<Option<(f64, f64)>>> = Arc::new(Mutex::new(None));
-    static ref DRAG_STATE: Arc<Mutex<DragState>> = Arc::new(Mutex::new(DragState::new()));
-}
-
-#[derive(Debug)]
-struct DragState {
-    is_dragging: bool,
-    helper_path: Option<String>,
-}
-
-impl DragState {
-    fn new() -> Self {
-        Self {
-            is_dragging: false,
-            helper_path: None,
-        }
-    }
 }
 
 fn convert_rdev_event(event: Event) -> Option<MouseEvent> {
@@ -142,9 +124,6 @@ fn convert_rdev_event(event: Event) -> Option<MouseEvent> {
 }
 
 fn trigger_mouse_event(mouse_event: MouseEvent) {
-    // Handle dynamic window creation/destruction based on mouse events
-    handle_drag_window_management(&mouse_event);
-
     if let Ok(state) = MONITOR_STATE.lock() {
         for callback in state.callbacks.values() {
             callback.call(Ok(mouse_event.clone()), ThreadsafeFunctionCallMode::Blocking);
@@ -152,116 +131,8 @@ fn trigger_mouse_event(mouse_event: MouseEvent) {
     }
 }
 
-// Handle file drag events and destroy windows when file drag is detected
-fn handle_file_drag_event_destroy_window() {
-    // Use a try-lock approach to avoid deadlock
-    if let Ok(mut drag_state) = DRAG_STATE.try_lock() {
-        if drag_state.is_dragging {
-            eprintln!("[main] File drag event detected, destroying drag monitoring windows");
-
-            // Update state first to prevent duplicate calls
-            drag_state.is_dragging = false;
-            drop(drag_state); // Release the lock before calling stop function
-
-            // Call the stop function directly without holding our lock
-            if let Err(e) = stop_file_drag_monitor_internal_safe() {
-                eprintln!("[main] Failed to stop file drag monitor: {}", e);
-            } else {
-                eprintln!("[main] Successfully destroyed windows due to file drag event");
-            }
-        }
-    } else {
-        eprintln!("[main] Could not acquire drag state lock, skipping window destruction");
-    }
-}
-
-// Safe version of stop_file_drag_monitor_internal that doesn't cause deadlock
-fn stop_file_drag_monitor_internal_safe() -> Result<()> {
-    // Use try_lock to avoid deadlock
-    if let Ok(mut state) = FILE_DRAG_STATE.try_lock() {
-        if !state.is_monitoring {
-            return Ok(());
-        }
-
-        if let Some(mut child) = state.helper_process.take() {
-            if let Some(mut stdin) = child.stdin.take() {
-                if let Err(e) = stdin.write_all(b"shutdown\n") {
-                    eprintln!("Failed to send shutdown command to helper: {}", e);
-                }
-            }
-            // Don't wait for the child to avoid blocking
-            let _ = child.kill();
-        }
-
-        if let Some(_handle) = state.reader_thread.take() {
-            // Don't join the thread to avoid blocking/deadlock
-            // Let it finish on its own
-        }
-
-        state.is_monitoring = false;
-        Ok(())
-    } else {
-        Err(Error::new(Status::GenericFailure, "Could not acquire file drag state lock"))
-    }
-}
-
-fn handle_drag_window_management(mouse_event: &MouseEvent) {
-    match mouse_event.event_type.as_str() {
-        "mousedown" => {
-            // Only create drag monitoring window on LEFT mouse button press (button = 1)
-            if mouse_event.button == 1 {
-                // On left mouse down, create drag monitoring window at mouse position
-                if let Ok(mut drag_state) = DRAG_STATE.lock() {
-                    if let Some(ref helper_path) = drag_state.helper_path {
-                        if !drag_state.is_dragging {
-                            eprintln!("[main] === MOUSE COORDINATE DEBUG ===");
-                            eprintln!("[main] Raw LEFT mouse down detected at ({}, {})", mouse_event.x, mouse_event.y);
-                            eprintln!("[main] Platform: {}", mouse_event.platform);
-                            eprintln!("[main] Timestamp: {}", mouse_event.timestamp);
-                            eprintln!("[main] Button: {}", mouse_event.button);
-                            eprintln!("[main] Passing coordinates to helper process...");
-
-                            if let Err(e) = start_file_drag_monitor_internal(helper_path, mouse_event.x, mouse_event.y) {
-                                eprintln!("[main] Failed to start file drag monitor: {}", e);
-                            } else {
-                                eprintln!("[main] Successfully sent coordinates ({}, {}) to helper process", mouse_event.x, mouse_event.y);
-                                drag_state.is_dragging = true;
-                            }
-                            eprintln!("[main] === END MOUSE DEBUG ===");
-                        }
-                    }
-                }
-            } else {
-                eprintln!("[main] Mouse button {} pressed, ignoring (only left button creates drag windows)", mouse_event.button);
-            }
-        }
-        "mouseup" => {
-            // On mouse up, stop drag monitoring (only for left button)
-            if mouse_event.button == 1 {
-                if let Ok(mut drag_state) = DRAG_STATE.lock() {
-                    if drag_state.is_dragging {
-                        eprintln!("[main] LEFT mouse up detected, stopping file drag monitor");
-                        drag_state.is_dragging = false; // Update state first
-                        drop(drag_state); // Release lock before calling stop function
-
-                        if let Err(e) = stop_file_drag_monitor_internal_safe() {
-                            eprintln!("[main] Failed to stop file drag monitor: {}", e);
-                        } else {
-                            eprintln!("[main] Successfully destroyed windows due to left mouse up");
-                        }
-                    }
-                }
-            } else {
-                eprintln!("[main] Mouse button {} released, ignoring (only left button destroys drag windows)", mouse_event.button);
-            }
-        }
-        _ => {
-            // Other events don't affect drag monitoring
-        }
-    }
-}
-
-#[napi] pub fn start_mouse_monitor() -> Result<()> {
+#[napi]
+pub fn start_mouse_monitor() -> Result<()> {
     let mut state = MONITOR_STATE.lock().map_err(|_| Error::new(Status::GenericFailure, "Failed to acquire monitor state lock"))?;
     if state.is_monitoring { return Ok(()); }
     let (shutdown_sender, _shutdown_receiver) = std::sync::mpsc::channel::<()>();
@@ -324,7 +195,7 @@ pub fn is_monitoring() -> bool {
 
 // endregion
 
-// region: File Drag Monitoring
+// region: File Drag Monitoring (新的基于NSPasteboard的实现)
 
 #[napi(object)]
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -338,20 +209,12 @@ pub struct FileDragEvent {
     pub window_id: String, // Kept for API compatibility, will be empty
 }
 
-#[derive(Deserialize, Debug)]
-struct HelperDragEvent {
-    event_type: String,
-    path: Option<String>,
-    x: f64,
-    y: f64,
-}
-
 struct FileDragMonitorState {
     is_monitoring: bool,
     callbacks: Arc<Mutex<HashMap<u32, ThreadsafeFunction<FileDragEvent, ErrorStrategy::CalleeHandled>>>>,
     next_callback_id: u32,
-    helper_process: Option<Child>,
-    reader_thread: Option<thread::JoinHandle<()>>,
+    drag_monitor_handle: Option<thread::JoinHandle<()>>,
+    shutdown_sender: Option<std::sync::mpsc::Sender<()>>,
 }
 
 impl FileDragMonitorState {
@@ -360,8 +223,8 @@ impl FileDragMonitorState {
             is_monitoring: false,
             callbacks: Arc::new(Mutex::new(HashMap::new())),
             next_callback_id: 0,
-            helper_process: None,
-            reader_thread: None,
+            drag_monitor_handle: None,
+            shutdown_sender: None,
         }
     }
 }
@@ -370,93 +233,204 @@ lazy_static::lazy_static! {
     static ref FILE_DRAG_STATE: Mutex<FileDragMonitorState> = Mutex::new(FileDragMonitorState::new());
 }
 
-// Internal function to start file drag monitoring
-fn start_file_drag_monitor_internal(helper_path_str: &str, mouse_x: f64, mouse_y: f64) -> Result<()> {
-    eprintln!("[main] === HELPER PROCESS DEBUG ===");
-    eprintln!("[main] start_file_drag_monitor_internal called with coordinates: ({}, {})", mouse_x, mouse_y);
-    eprintln!("[main] Helper path: {}", helper_path_str);
+// 检查拖拽粘贴板是否包含文件
+#[cfg(target_os = "macos")]
+fn check_drag_pasteboard_for_files() -> bool {
+    use objc2_foundation::NSString;
+    use objc2_app_kit::NSPasteboard;
 
+    eprintln!("[macOS] DEBUG: Checking drag pasteboard for files...");
+
+    // 获取拖拽粘贴板 - 使用 .drag 名称
+    let drag_pasteboard = unsafe {
+        let pasteboard_name = NSString::from_str("NSDragPboard");
+        let pb = NSPasteboard::pasteboardWithName(&pasteboard_name);
+        eprintln!("[macOS] DEBUG: Got drag pasteboard: {:p}", pb);
+        pb
+    };
+
+    // 检查粘贴板是否包含文件URL类型 - 根据Stack Overflow答案使用 .fileURL
+    let file_url_type = NSString::from_str("public.file-url");
+    eprintln!("[macOS] DEBUG: Looking for file URL type: {}", file_url_type);
+
+    unsafe {
+        let types = drag_pasteboard.types();
+        eprintln!("[macOS] DEBUG: Pasteboard types: {:?}", types.as_ref().map(|t| {
+            // 尝试获取一些类型信息
+            format!("{:p} (count: {})", t, t.len())
+        }));
+
+        if let Some(types_array) = types {
+            let has_file_url = types_array.containsObject(&file_url_type);
+            eprintln!("[macOS] DEBUG: Contains file URL: {}", has_file_url);
+            return has_file_url;
+        } else {
+            eprintln!("[macOS] DEBUG: No types array found");
+        }
+    }
+
+    false
+}
+
+// 触发文件拖拽事件
+fn trigger_file_drag_event(event: FileDragEvent) {
+    let callbacks = {
+        let state = FILE_DRAG_STATE.lock().unwrap();
+        Arc::clone(&state.callbacks)
+    };
+
+    if let Ok(cbs) = callbacks.lock() {
+        for callback in cbs.values() {
+            callback.call(Ok(event.clone()), ThreadsafeFunctionCallMode::Blocking);
+        }
+    };
+}
+
+// macOS拖拽监控线程 - 基于 NSEvent 和 NSRunLoop 的正确实现
+#[cfg(target_os = "macos")]
+fn start_macos_drag_monitor_thread(shutdown_receiver: std::sync::mpsc::Receiver<()>) -> thread::JoinHandle<()> {
+    thread::spawn(move || {
+        use objc2_app_kit::{NSEvent, NSEventMask, NSApplication};
+        use objc2_foundation::{NSAutoreleasePool, MainThreadMarker};
+        use block2::StackBlock;
+        use std::ptr::NonNull;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use dispatch::Queue;
+
+        eprintln!("[macOS] Drag monitoring thread started (NSRunLoop-based implementation)");
+
+        // The thread that calls `app.run()` becomes the main AppKit thread.
+        // We need a separate thread to listen for the shutdown signal and dispatch `app.stop()`.
+        let shutdown_handle = {
+            let main_queue = Queue::main();
+            thread::spawn(move || {
+                // Block until the shutdown signal is received from `stop_file_drag_monitor`
+                let _ = shutdown_receiver.recv();
+                eprintln!("[macOS] Shutdown signal received. Dispatching stop to main AppKit queue.");
+
+                // Queue the `stop` command on the main AppKit thread to gracefully exit the run loop.
+                main_queue.exec_async(move || {
+                    eprintln!("[macOS] Executing stop command on main AppKit queue.");
+                    let app = unsafe { NSApplication::sharedApplication(MainThreadMarker::new_unchecked()) };
+                    app.stop(None);
+                });
+            })
+        };
+
+        // An autorelease pool is required for Cocoa API calls.
+        let _pool = unsafe { NSAutoreleasePool::new() };
+
+        // Setup the NSApplication instance.
+        let app = unsafe { NSApplication::sharedApplication(MainThreadMarker::new_unchecked()) };
+        // Set activation policy to `Accessory` to prevent the app from appearing in the Dock or forcing focus.
+        // unsafe { app.setActivationPolicy(NSApplicationActivationPolicy::Accessory) }; // Commented out to fix build issues
+
+        let is_dragging = AtomicBool::new(false);
+
+        // Create global mouse event monitors.
+        let (drag_monitor, move_monitor, up_monitor) = unsafe {
+            let is_dragging_ptr = &is_dragging as *const AtomicBool;
+
+            // Monitor for LeftMouseDragged events
+            let drag_block = StackBlock::new(move |event: NonNull<NSEvent>| {
+                if check_drag_pasteboard_for_files() {
+                    if !(*is_dragging_ptr).load(Ordering::Relaxed) {
+                        (*is_dragging_ptr).store(true, Ordering::Relaxed);
+                        eprintln!("[macOS] File drag detected");
+
+                        let event_ref = event.as_ref();
+                        let location = event_ref.locationInWindow();
+                        let drag_event = FileDragEvent {
+                            event_type: "hovered_file".to_string(),
+                            file_path: "".to_string(),
+                            x: location.x as f64,
+                            y: location.y as f64,
+                            timestamp: std::time::SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs_f64(),
+                            platform: "macos".to_string(),
+                            window_id: "".to_string(),
+                        };
+                        trigger_file_drag_event(drag_event);
+                    }
+                }
+            });
+
+            // Monitor for MouseMoved events (to test for permissions)
+            let move_block = StackBlock::new(|_event: NonNull<NSEvent>| {
+                eprintln!("[macOS] DEBUG: Mouse moved - permissions are working!");
+            });
+
+            // Monitor for LeftMouseUp events (to detect drag end)
+            let up_block = StackBlock::new(move |_event: NonNull<NSEvent>| {
+                if (*is_dragging_ptr).load(Ordering::Relaxed) {
+                    (*is_dragging_ptr).store(false, Ordering::Relaxed);
+                    eprintln!("[macOS] Drag ended");
+
+                    let drag_event = FileDragEvent {
+                        event_type: "hovered_file_cancelled".to_string(),
+                        file_path: "".to_string(),
+                        x: 0.0,
+                        y: 0.0,
+                        timestamp: std::time::SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs_f64(),
+                        platform: "macos".to_string(),
+                        window_id: "".to_string(),
+                    };
+                    trigger_file_drag_event(drag_event);
+                }
+            });
+
+            eprintln!("[macOS] DEBUG: Setting up global event monitors...");
+            let drag_monitor = NSEvent::addGlobalMonitorForEventsMatchingMask_handler(NSEventMask::LeftMouseDragged, &drag_block);
+            let move_monitor = NSEvent::addGlobalMonitorForEventsMatchingMask_handler(NSEventMask::MouseMoved, &move_block);
+            let up_monitor = NSEvent::addGlobalMonitorForEventsMatchingMask_handler(NSEventMask::LeftMouseUp, &up_block);
+            eprintln!("[macOS] DEBUG: Monitors created: drag={:?}, move={:?}, up={:?}", drag_monitor.is_some(), move_monitor.is_some(), up_monitor.is_some());
+
+            (drag_monitor, move_monitor, up_monitor)
+        };
+
+        eprintln!("[macOS] Starting AppKit run loop. This will block until stop is called...");
+        unsafe { app.run() }; // This blocks the thread and processes events until `app.stop()` is called.
+        eprintln!("[macOS] AppKit run loop finished.");
+
+        // Cleanup: remove the monitors.
+        if let Some(monitor) = drag_monitor { unsafe { NSEvent::removeMonitor(&monitor) } }
+        if let Some(monitor) = move_monitor { unsafe { NSEvent::removeMonitor(&monitor) } }
+        if let Some(monitor) = up_monitor { unsafe { NSEvent::removeMonitor(&monitor) } }
+        eprintln!("[macOS] Event monitors removed.");
+
+        // Wait for the shutdown helper thread to complete.
+        shutdown_handle.join().expect("Shutdown handle thread failed");
+        eprintln!("[macOS] Drag monitoring thread fully stopped.");
+    })
+}
+
+// 非macOS平台的占位符实现
+#[cfg(not(target_os = "macos"))]
+fn start_macos_drag_monitor_thread(_shutdown_receiver: std::sync::mpsc::Receiver<()>) -> thread::JoinHandle<()> {
+    thread::spawn(move || {
+        eprintln!("[warning] File drag monitoring is only supported on macOS");
+    })
+}
+
+// 内部启动文件拖拽监控的函数
+fn start_file_drag_monitor_internal() -> Result<()> {
     let mut state = FILE_DRAG_STATE.lock().map_err(|_| Error::new(Status::GenericFailure, "Failed to acquire file drag state lock"))?;
 
     if state.is_monitoring {
-        eprintln!("[main] Already monitoring, returning early");
         return Ok(());
     }
 
-    let helper_path = std::path::PathBuf::from(helper_path_str);
+    let (shutdown_sender, shutdown_receiver) = std::sync::mpsc::channel::<()>();
+    state.shutdown_sender = Some(shutdown_sender);
 
-    if !helper_path.exists() {
-        eprintln!("[main] Helper executable not found at: {:?}", helper_path);
-        return Err(Error::new(Status::GenericFailure, format!("Helper executable not found at {:?}. Please ensure it has been built.", helper_path)));
-    }
-
-    let x_str = mouse_x.to_string();
-    let y_str = mouse_y.to_string();
-    eprintln!("[main] About to spawn helper with args: [\"{}\", \"{}\"]", x_str, y_str);
-
-    let mut child = Command::new(helper_path)
-        .arg(&x_str)
-        .arg(&y_str)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
-        .spawn()
-        .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to spawn helper process: {}", e)))?;
-
-    eprintln!("[main] Helper process spawned successfully with PID: {:?}", child.id());
-    eprintln!("[main] === END HELPER DEBUG ===");
-
-    let stdout = child.stdout.take().ok_or_else(|| Error::new(Status::GenericFailure, "Failed to capture helper stdout"))?;
-    let callbacks = Arc::clone(&state.callbacks);
-
-    let reader_handle = thread::spawn(move || {
-        let reader = BufReader::new(stdout);
-        for line in reader.lines() {
-            match line {
-                Ok(json) => {
-                    if let Ok(helper_event) = serde_json::from_str::<HelperDragEvent>(&json) {
-                        let event_type = match helper_event.event_type.as_str() {
-                            "hovered" => "hovered_file",
-                            "dropped" => "dropped_file",
-                            "cancelled" => "hovered_file_cancelled",
-                            _ => "unknown",
-                        }.to_string();
-
-                        let event = FileDragEvent {
-                            event_type,
-                            file_path: helper_event.path.unwrap_or_default(),
-                            x: helper_event.x,
-                            y: helper_event.y,
-                            timestamp: std::time::SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs_f64(),
-                            platform: std::env::consts::OS.to_string(),
-                            window_id: "".to_string(),
-                        };
-
-                        let cbs = callbacks.lock().unwrap();
-                        for callback in cbs.values() {
-                            callback.call(Ok(event.clone()), ThreadsafeFunctionCallMode::Blocking);
-                        }
-
-                        // Destroy windows when any file drag event is detected
-                        handle_file_drag_event_destroy_window();
-                    }
-                }
-                Err(e) => {
-                    eprintln!("Error reading from helper process: {}", e);
-                    break;
-                }
-            }
-        }
-    });
-
-    state.helper_process = Some(child);
-    state.reader_thread = Some(reader_handle);
+    let handle = start_macos_drag_monitor_thread(shutdown_receiver);
+    state.drag_monitor_handle = Some(handle);
     state.is_monitoring = true;
 
+    eprintln!("[main] File drag monitoring started using NSPasteboard detection");
     Ok(())
 }
 
-// Internal function to stop file drag monitoring
+// 内部停止文件拖拽监控的函数
 fn stop_file_drag_monitor_internal() -> Result<()> {
     let mut state = FILE_DRAG_STATE.lock().map_err(|_| Error::new(Status::GenericFailure, "Failed to acquire file drag state lock"))?;
 
@@ -464,48 +438,29 @@ fn stop_file_drag_monitor_internal() -> Result<()> {
         return Ok(());
     }
 
-    if let Some(mut child) = state.helper_process.take() {
-        if let Some(mut stdin) = child.stdin.take() {
-            if let Err(e) = stdin.write_all(b"shutdown\n") {
-                eprintln!("Failed to send shutdown command to helper: {}", e);
-            }
-        }
-        if let Err(e) = child.wait() {
-            eprintln!("Failed to wait for helper process: {}", e);
-        }
+    if let Some(sender) = state.shutdown_sender.take() {
+        let _ = sender.send(());
     }
 
-    if let Some(_handle) = state.reader_thread.take() {
-        let _ = _handle.join();
+    if let Some(handle) = state.drag_monitor_handle.take() {
+        let _ = handle.join();
     }
 
     state.is_monitoring = false;
+    eprintln!("[main] File drag monitoring stopped");
     Ok(())
 }
 
 #[napi]
-pub fn start_file_drag_monitor(helper_path_str: String) -> Result<()> {
-    // Configure helper path for dynamic monitoring
-    if let Ok(mut drag_state) = DRAG_STATE.lock() {
-        drag_state.helper_path = Some(helper_path_str.clone());
-        eprintln!("[main] Helper path configured for dynamic monitoring (window will be created on mouse movement)");
-    }
-
-    // Don't start monitoring immediately - let it be triggered by mouse events
-    eprintln!("[main] Dynamic monitoring enabled - use mouse movement to trigger drag detection");
-    Ok(())
+pub fn start_file_drag_monitor(_helper_path: String) -> Result<()> {
+    // _helper_path 参数为了保持API兼容性，但新的实现不需要它
+    eprintln!("[main] Starting file drag monitoring (NSPasteboard-based implementation)");
+    start_file_drag_monitor_internal()
 }
 
 #[napi]
 pub fn stop_file_drag_monitor() -> Result<()> {
-    // Clear helper path configuration
-    if let Ok(mut drag_state) = DRAG_STATE.lock() {
-        drag_state.helper_path = None;
-        drag_state.is_dragging = false;
-        eprintln!("[main] Helper path cleared, dynamic monitoring disabled");
-    }
-
-    // Stop current monitoring
+    eprintln!("[main] Stopping file drag monitoring");
     stop_file_drag_monitor_internal()
 }
 
@@ -522,7 +477,7 @@ pub fn on_file_drag_event(callback: JsFunction) -> Result<u32> {
 
     let mut callbacks = callbacks_arc.lock().unwrap();
     callbacks.insert(id, tsfn);
-    
+
     Ok(id)
 }
 

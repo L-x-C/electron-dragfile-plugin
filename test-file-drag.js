@@ -2,7 +2,7 @@
 /* eslint-disable */
 /* prettier-ignore */
 
-// Test file for winit-based file drag monitoring
+// Test file for NSPasteboard-based file drag monitoring
 
 const {
   startFileDragMonitor,
@@ -17,7 +17,7 @@ const path = require('path');
 // Test configuration
 const TEST_TIMEOUT = 30000; // 30 seconds
 
-console.log('🗂️  Testing winit-based file drag monitoring...');
+console.log('🗂️  Testing NSPasteboard-based file drag monitoring...');
 console.log('=' .repeat(60));
 
 async function testFileDragMonitoring() {
@@ -55,16 +55,15 @@ async function testFileDragMonitoring() {
 
     // Start file drag monitoring
     console.log('\n3️⃣ Starting file drag monitoring...');
-    // Path to the helper executable (built from src/bin/drag-monitor-helper.rs)
-    const helperPath = path.join(__dirname, 'target', 'release', 'drag-monitor-helper');
-    await startFileDragMonitor(helperPath);
+    // Helper path is no longer needed - using NSPasteboard directly
+    await startFileDragMonitor("dummy-path-for-compatibility");
     console.log(`   ✅ File drag monitoring started`);
     console.log(`   ✅ File drag monitoring active: ${isFileDragMonitoring()}`);
 
     console.log('\n4️⃣ File drag monitoring is now active!');
     console.log('   💡 Try dragging files over any part of your screen');
     console.log('   💡 You should see events in the console');
-    console.log('   💡 The transparent window will detect file drags');
+    console.log('   💡 NSPasteboard will detect file drags system-wide');
 
     // Wait for user to test
     console.log(`\n⏳ Testing for ${TEST_TIMEOUT / 1000} seconds...`);
@@ -104,9 +103,8 @@ async function testErrorHandling() {
   try {
     // Test starting twice
     console.log('   Testing double start...');
-    const helperPath = path.join(__dirname, 'target', 'release', 'drag-monitor-helper');
-    await startFileDragMonitor(helperPath);
-    await startFileDragMonitor(helperPath); // Should not error
+    await startFileDragMonitor("dummy-path-for-compatibility");
+    await startFileDragMonitor("dummy-path-for-compatibility"); // Should not error
     console.log('   ✅ Double start handled gracefully');
 
     // Test stopping twice
@@ -125,8 +123,7 @@ async function testEventValidation() {
   console.log('\n🔍 Testing event validation...');
 
   try {
-    const helperPath = path.join(__dirname, 'target', 'release', 'drag-monitor-helper');
-    await startFileDragMonitor(helperPath);
+    await startFileDragMonitor("dummy-path-for-compatibility");
 
     // Register validation callback
     const validationCallbackId = onFileDragEvent((err, event) => {
@@ -181,7 +178,7 @@ async function runAllTests() {
   console.log('💡 If you didn\'t see any file drag events, try:');
   console.log('   - Make sure you actually dragged files on your screen');
   console.log('   - Check if any security permissions are needed');
-  console.log('   - Verify the transparent window was created');
+  console.log('   - Verify NSPasteboard access is working');
   console.log('\n👋 Test exiting...');
 }
 
