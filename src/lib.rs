@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::UNIX_EPOCH;
 
-// region: Mouse Monitoring (保留原有鼠标监听功能)
+// region: Mouse and Keyboard Monitoring (统一事件监听系统)
 
 #[napi(object)]
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -21,19 +21,32 @@ pub struct MouseEvent {
     pub platform: String,
 }
 
-struct MonitorState {
+#[napi(object)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct KeyboardEvent {
+    pub event_type: String,
+    pub key_code: i32,
+    pub key_name: String,
+    pub modifiers: Vec<String>,
+    pub timestamp: f64,
+    pub platform: String,
+}
+
+struct UnifiedMonitorState {
     is_monitoring: bool,
-    callbacks: HashMap<u32, ThreadsafeFunction<MouseEvent, ErrorStrategy::CalleeHandled>>,
+    mouse_callbacks: HashMap<u32, ThreadsafeFunction<MouseEvent, ErrorStrategy::CalleeHandled>>,
+    keyboard_callbacks: HashMap<u32, ThreadsafeFunction<KeyboardEvent, ErrorStrategy::CalleeHandled>>,
     next_callback_id: u32,
     shutdown_sender: Option<std::sync::mpsc::Sender<()>>,
     monitor_handle: Option<thread::JoinHandle<()>>,
 }
 
-impl MonitorState {
+impl UnifiedMonitorState {
     fn new() -> Self {
         Self {
             is_monitoring: false,
-            callbacks: HashMap::new(),
+            mouse_callbacks: HashMap::new(),
+            keyboard_callbacks: HashMap::new(),
             next_callback_id: 0,
             shutdown_sender: None,
             monitor_handle: None,
@@ -42,11 +55,11 @@ impl MonitorState {
 }
 
 lazy_static::lazy_static! {
-    static ref MONITOR_STATE: Arc<Mutex<MonitorState>> = Arc::new(Mutex::new(MonitorState::new()));
+    static ref UNIFIED_STATE: Arc<Mutex<UnifiedMonitorState>> = Arc::new(Mutex::new(UnifiedMonitorState::new()));
     static ref LAST_POSITION: Arc<Mutex<Option<(f64, f64)>>> = Arc::new(Mutex::new(None));
 }
 
-fn convert_rdev_event(event: Event) -> Option<MouseEvent> {
+fn convert_rdev_mouse_event(event: &Event) -> Option<MouseEvent> {
     let platform = if cfg!(target_os = "macos") {
         "macos"
     } else if cfg!(target_os = "windows") {
@@ -123,116 +136,7 @@ fn convert_rdev_event(event: Event) -> Option<MouseEvent> {
     }
 }
 
-fn trigger_mouse_event(mouse_event: MouseEvent) {
-    if let Ok(state) = MONITOR_STATE.lock() {
-        for callback in state.callbacks.values() {
-            callback.call(Ok(mouse_event.clone()), ThreadsafeFunctionCallMode::Blocking);
-        }
-    }
-}
-
-#[napi]
-pub fn start_mouse_monitor() -> Result<()> {
-    let mut state = MONITOR_STATE.lock().map_err(|_| Error::new(Status::GenericFailure, "Failed to acquire monitor state lock"))?;
-    if state.is_monitoring { return Ok(()); }
-    let (shutdown_sender, _shutdown_receiver) = std::sync::mpsc::channel::<()>();
-    state.shutdown_sender = Some(shutdown_sender);
-    let handle = thread::spawn(move || {
-        let callback = move |event: Event| {
-            if let Some(mut mouse_event) = convert_rdev_event(event) {
-                if mouse_event.event_type != "mousemove" {
-                    if let Some((x, y)) = LAST_POSITION.lock().ok().and_then(|p| *p) {
-                        mouse_event.x = x;
-                        mouse_event.y = y;
-                    }
-                } else {
-                    if let Ok(mut pos) = LAST_POSITION.lock() {
-                        *pos = Some((mouse_event.x, mouse_event.y));
-                    }
-                }
-                trigger_mouse_event(mouse_event);
-            }
-        };
-        if let Err(error) = listen(callback) {
-            eprintln!("Error listening to mouse events: {:?}", error);
-        }
-    });
-    state.monitor_handle = Some(handle);
-    state.is_monitoring = true;
-    Ok(())
-}
-
-#[napi]
-pub fn stop_mouse_monitor() -> Result<()> {
-    let mut state = MONITOR_STATE.lock().map_err(|_| Error::new(Status::GenericFailure, "Failed to acquire monitor state lock"))?;
-    if !state.is_monitoring { return Ok(()); }
-    if let Some(sender) = state.shutdown_sender.take() { let _ = sender.send(()); }
-    if let Some(handle) = state.monitor_handle.take() { let _ = handle.join(); }
-    state.is_monitoring = false;
-    Ok(())
-}
-
-#[napi]
-pub fn on_mouse_event(callback: JsFunction) -> Result<u32> {
-    let mut state = MONITOR_STATE.lock().map_err(|_| Error::new(Status::GenericFailure, "Failed to acquire monitor state lock"))?;
-    let id = state.next_callback_id + 1;
-    state.next_callback_id = id;
-    let tsfn: ThreadsafeFunction<MouseEvent, ErrorStrategy::CalleeHandled> = callback.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
-    state.callbacks.insert(id, tsfn);
-    Ok(id)
-}
-
-#[napi]
-pub fn remove_mouse_event_listener(id: u32) -> Result<bool> {
-    let mut state = MONITOR_STATE.lock().map_err(|_| Error::new(Status::GenericFailure, "Failed to acquire monitor state lock"))?;
-    Ok(state.callbacks.remove(&id).is_some())
-}
-
-#[napi]
-pub fn is_monitoring() -> bool {
-    MONITOR_STATE.lock().unwrap().is_monitoring
-}
-
-// endregion
-
-// region: Keyboard Monitoring (键盘监听功能)
-
-#[napi(object)]
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct KeyboardEvent {
-    pub event_type: String,
-    pub key_code: i32,
-    pub key_name: String,
-    pub modifiers: Vec<String>,
-    pub timestamp: f64,
-    pub platform: String,
-}
-
-struct KeyboardMonitorState {
-    is_monitoring: bool,
-    callbacks: HashMap<u32, ThreadsafeFunction<KeyboardEvent, ErrorStrategy::CalleeHandled>>,
-    next_callback_id: u32,
-    shutdown_sender: Option<std::sync::mpsc::Sender<()>>,
-    monitor_handle: Option<thread::JoinHandle<()>>,
-}
-
-impl KeyboardMonitorState {
-    fn new() -> Self {
-        Self {
-            is_monitoring: false,
-            callbacks: HashMap::new(),
-            next_callback_id: 0,
-            shutdown_sender: None,
-            monitor_handle: None,
-        }
-    }
-}
-
-lazy_static::lazy_static! {
-    static ref KEYBOARD_STATE: Arc<Mutex<KeyboardMonitorState>> = Arc::new(Mutex::new(KeyboardMonitorState::new()));
-}
-
-fn convert_rdev_keyboard_event(event: Event) -> Option<KeyboardEvent> {
+fn convert_rdev_keyboard_event(event: &Event) -> Option<KeyboardEvent> {
     let platform = if cfg!(target_os = "macos") {
         "macos"
     } else if cfg!(target_os = "windows") {
@@ -379,30 +283,116 @@ fn extract_modifiers(event: &Event) -> Vec<String> {
     modifiers
 }
 
+fn trigger_mouse_event(mouse_event: MouseEvent) {
+    if let Ok(state) = UNIFIED_STATE.lock() {
+        for callback in state.mouse_callbacks.values() {
+            callback.call(Ok(mouse_event.clone()), ThreadsafeFunctionCallMode::Blocking);
+        }
+    }
+}
+
 fn trigger_keyboard_event(keyboard_event: KeyboardEvent) {
-    if let Ok(state) = KEYBOARD_STATE.lock() {
-        for callback in state.callbacks.values() {
+    if let Ok(state) = UNIFIED_STATE.lock() {
+        for callback in state.keyboard_callbacks.values() {
             callback.call(Ok(keyboard_event.clone()), ThreadsafeFunctionCallMode::Blocking);
         }
     }
 }
 
+// 统一的事件监听函数，同时处理鼠标和键盘事件
+fn unified_event_listener() -> impl FnMut(Event) {
+    move |event: Event| {
+        // 首先尝试作为鼠标事件处理
+        if let Some(mut mouse_event) = convert_rdev_mouse_event(&event) {
+            // 处理鼠标事件的坐标
+            if mouse_event.event_type != "mousemove" {
+                if let Some((x, y)) = LAST_POSITION.lock().ok().and_then(|p| *p) {
+                    mouse_event.x = x;
+                    mouse_event.y = y;
+                }
+            } else {
+                if let Ok(mut pos) = LAST_POSITION.lock() {
+                    *pos = Some((mouse_event.x, mouse_event.y));
+                }
+            }
+            trigger_mouse_event(mouse_event);
+        }
+        // 如果不是鼠标事件，尝试作为键盘事件处理
+        else if let Some(keyboard_event) = convert_rdev_keyboard_event(&event) {
+            trigger_keyboard_event(keyboard_event);
+        }
+    }
+}
+
+// Mouse API functions
+#[napi]
+pub fn start_mouse_monitor() -> Result<()> {
+    start_unified_monitor()
+}
+
+#[napi]
+pub fn stop_mouse_monitor() -> Result<()> {
+    stop_unified_monitor()
+}
+
+#[napi]
+pub fn on_mouse_event(callback: JsFunction) -> Result<u32> {
+    let mut state = UNIFIED_STATE.lock().map_err(|_| Error::new(Status::GenericFailure, "Failed to acquire unified monitor state lock"))?;
+    let id = state.next_callback_id + 1;
+    state.next_callback_id = id;
+    let tsfn: ThreadsafeFunction<MouseEvent, ErrorStrategy::CalleeHandled> = callback.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
+    state.mouse_callbacks.insert(id, tsfn);
+    Ok(id)
+}
+
+#[napi]
+pub fn remove_mouse_event_listener(id: u32) -> Result<bool> {
+    let mut state = UNIFIED_STATE.lock().map_err(|_| Error::new(Status::GenericFailure, "Failed to acquire unified monitor state lock"))?;
+    Ok(state.mouse_callbacks.remove(&id).is_some())
+}
+
+// Keyboard API functions
 #[napi]
 pub fn start_keyboard_monitor() -> Result<()> {
-    let mut state = KEYBOARD_STATE.lock().map_err(|_| Error::new(Status::GenericFailure, "Failed to acquire keyboard monitor state lock"))?;
-    if state.is_monitoring { return Ok(()); }
+    start_unified_monitor()
+}
+
+#[napi]
+pub fn stop_keyboard_monitor() -> Result<()> {
+    stop_unified_monitor()
+}
+
+#[napi]
+pub fn on_keyboard_event(callback: JsFunction) -> Result<u32> {
+    let mut state = UNIFIED_STATE.lock().map_err(|_| Error::new(Status::GenericFailure, "Failed to acquire unified monitor state lock"))?;
+    let id = state.next_callback_id + 1;
+    state.next_callback_id = id;
+    let tsfn: ThreadsafeFunction<KeyboardEvent, ErrorStrategy::CalleeHandled> = callback.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
+    state.keyboard_callbacks.insert(id, tsfn);
+    Ok(id)
+}
+
+#[napi]
+pub fn remove_keyboard_event_listener(id: u32) -> Result<bool> {
+    let mut state = UNIFIED_STATE.lock().map_err(|_| Error::new(Status::GenericFailure, "Failed to acquire unified monitor state lock"))?;
+    Ok(state.keyboard_callbacks.remove(&id).is_some())
+}
+
+// Unified monitoring functions
+fn start_unified_monitor() -> Result<()> {
+    let mut state = UNIFIED_STATE.lock().map_err(|_| Error::new(Status::GenericFailure, "Failed to acquire unified monitor state lock"))?;
+
+    if state.is_monitoring {
+        return Ok(());
+    }
 
     let (shutdown_sender, _shutdown_receiver) = std::sync::mpsc::channel::<()>();
     state.shutdown_sender = Some(shutdown_sender);
 
     let handle = thread::spawn(move || {
-        let callback = move |event: Event| {
-            if let Some(keyboard_event) = convert_rdev_keyboard_event(event) {
-                trigger_keyboard_event(keyboard_event);
-            }
-        };
+        let callback = unified_event_listener();
         if let Err(error) = listen(callback) {
-            eprintln!("Error listening to keyboard events: {:?}", error);
+            eprintln!("Error listening to input events: {:?}", error);
         }
     });
 
@@ -411,14 +401,17 @@ pub fn start_keyboard_monitor() -> Result<()> {
     Ok(())
 }
 
-#[napi]
-pub fn stop_keyboard_monitor() -> Result<()> {
-    let mut state = KEYBOARD_STATE.lock().map_err(|_| Error::new(Status::GenericFailure, "Failed to acquire keyboard monitor state lock"))?;
-    if !state.is_monitoring { return Ok(()); }
+fn stop_unified_monitor() -> Result<()> {
+    let mut state = UNIFIED_STATE.lock().map_err(|_| Error::new(Status::GenericFailure, "Failed to acquire unified monitor state lock"))?;
+
+    if !state.is_monitoring {
+        return Ok(());
+    }
 
     if let Some(sender) = state.shutdown_sender.take() {
         let _ = sender.send(());
     }
+
     if let Some(handle) = state.monitor_handle.take() {
         let _ = handle.join();
     }
@@ -428,19 +421,8 @@ pub fn stop_keyboard_monitor() -> Result<()> {
 }
 
 #[napi]
-pub fn on_keyboard_event(callback: JsFunction) -> Result<u32> {
-    let mut state = KEYBOARD_STATE.lock().map_err(|_| Error::new(Status::GenericFailure, "Failed to acquire keyboard monitor state lock"))?;
-    let id = state.next_callback_id + 1;
-    state.next_callback_id = id;
-    let tsfn: ThreadsafeFunction<KeyboardEvent, ErrorStrategy::CalleeHandled> = callback.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
-    state.callbacks.insert(id, tsfn);
-    Ok(id)
-}
-
-#[napi]
-pub fn remove_keyboard_event_listener(id: u32) -> Result<bool> {
-    let mut state = KEYBOARD_STATE.lock().map_err(|_| Error::new(Status::GenericFailure, "Failed to acquire keyboard monitor state lock"))?;
-    Ok(state.callbacks.remove(&id).is_some())
+pub fn is_monitoring() -> bool {
+    UNIFIED_STATE.lock().unwrap().is_monitoring
 }
 
 // endregion
