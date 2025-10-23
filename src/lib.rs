@@ -473,8 +473,17 @@ fn unified_event_listener() -> impl FnMut(Event) {
             trigger_mouse_event(mouse_event);
         }
         // 如果不是鼠标事件，尝试作为键盘事件处理
+        // 但是只有在注册了键盘回调的情况下才处理键盘事件
+        // 避免在不需要键盘监听时触发rdev的键盘事件处理bug
         else if let Some(keyboard_event) = convert_rdev_keyboard_event(&event) {
-            trigger_keyboard_event(keyboard_event);
+            // 检查是否注册了键盘回调，如果没有则跳过处理
+            if let Ok(state) = UNIFIED_STATE.lock() {
+                if !state.keyboard_callbacks.is_empty() {
+                    drop(state);
+                    trigger_keyboard_event(keyboard_event);
+                }
+                // 如果没有注册键盘回调，直接忽略键盘事件，不触发处理
+            }
         }
     }
 }
