@@ -1,14 +1,15 @@
 # electron-dragfile-plugin
 
-A high-performance native Node.js addon built with Rust and napi-rs that monitors system-wide mouse and keyboard events. Perfect for applications that need to track mouse movements, clicks, and keyboard inputs across the entire system.
+A high-performance native Node.js addon built with Rust and napi-rs that monitors system-wide mouse, keyboard, and drag events. Perfect for applications that need to track mouse movements, clicks, keyboard inputs, and drag operations across the entire system.
 
 ## ✨ Features
 
 - 🚀 **High Performance**: Built with Rust for maximum performance and low overhead
 - 🌍 **Cross-Platform**: Supports macOS, Windows, and Linux
-- 📡 **System-Wide Detection**: Monitors mouse and keyboard events across the entire system, not just your app
+- 📡 **System-Wide Detection**: Monitors mouse, keyboard, and drag events across the entire system, not just your app
 - ⌨️ **Full Keyboard Support**: Detects key presses, releases, and modifier keys
 - 🖱️ **Complete Mouse Tracking**: Tracks mouse movements, clicks, and wheel events
+- 🔄 **Smart Drag Detection**: Intelligent drag event detection with distance threshold to avoid false triggers
 - 🔧 **Easy to Use**: Simple JavaScript API with TypeScript support
 - 📦 **NPM Ready**: Published to npm for easy installation
 - 🎯 **Universal**: Works with any Node.js application, not just Electron
@@ -26,10 +27,11 @@ const {
   startMouseMonitor,
   startKeyboardMonitor,
   onMouseEvent,
-  onKeyboardEvent
+  onKeyboardEvent,
+  onDragEvent
 } = require('electron-dragfile-plugin');
 
-// Start monitoring mouse and keyboard events
+// Start monitoring mouse, keyboard, and drag events
 await startMouseMonitor();
 await startKeyboardMonitor();
 
@@ -59,6 +61,31 @@ onKeyboardEvent((err, event) => {
 
   const modifiers = event.modifiers.length > 0 ? event.modifiers.join('+') + '+' : '';
   console.log(`⌨️ ${event.eventType.toUpperCase()}: ${modifiers}${event.keyName} (code: ${event.keyCode})`);
+  console.log(`   Platform: ${event.platform}`);
+  console.log(`   Time: ${new Date(event.timestamp * 1000).toLocaleTimeString()}`);
+});
+
+// Listen for drag events
+onDragEvent((err, event) => {
+  if (err) {
+    console.error('Error:', err);
+    return;
+  }
+
+  const buttonName = event.button === 0 ? 'None' :
+    event.button === 1 ? 'Left' :
+    event.button === 2 ? 'Middle' :
+    event.button === 3 ? 'Right' : `Button ${event.button}`;
+
+  const deltaX = event.x - event.startX;
+  const deltaY = event.y - event.startY;
+  const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+
+  console.log(`🔄 ${event.eventType.toUpperCase()} at (${event.x.toFixed(2)}, ${event.y.toFixed(2)}) - ${buttonName}`);
+  console.log(`   Start position: (${event.startX.toFixed(2)}, ${event.startY.toFixed(2)})`);
+  if (distance > 0.1) {
+    console.log(`   Distance: (${deltaX.toFixed(2)}, ${deltaY.toFixed(2)}) total: ${distance.toFixed(2)}px`);
+  }
   console.log(`   Platform: ${event.platform}`);
   console.log(`   Time: ${new Date(event.timestamp * 1000).toLocaleTimeString()}`);
 });
@@ -94,6 +121,14 @@ Register a callback for keyboard events. Returns a callback ID.
 #### `removeKeyboardEventListener(callbackId: number): Promise<boolean>`
 Remove a keyboard event callback using the returned ID.
 
+### Drag Event Functions
+
+#### `onDragEvent(callback: Function): Promise<number>`
+Register a callback for drag events. Returns a callback ID.
+
+#### `removeDragEventListener(callbackId: number): Promise<boolean>`
+Remove a drag event callback using the returned ID.
+
 ### Status Functions
 
 #### `isMonitoring(): Promise<boolean>`
@@ -125,11 +160,28 @@ interface KeyboardEvent {
 }
 ```
 
+### DragEvent Interface
+
+```typescript
+interface DragEvent {
+  eventType: string;      // Event type: "dragstart", "dragmove", "dragend"
+  x: number;             // Current mouse X coordinate
+  y: number;             // Current mouse Y coordinate
+  startX: number;        // Drag start X coordinate
+  startY: number;        // Drag start Y coordinate
+  button: number;        // Mouse button used for drag: 0=none, 1=left, 2=middle, 3=right
+  timestamp: number;     // Unix timestamp of the event
+  platform: string;      // Platform information: "macos", "windows", "linux"
+}
+```
+
+**Smart Drag Detection**: The drag events use intelligent detection with a distance threshold (default 5px) to avoid false triggers from simple clicks or accidental mouse movements. Drag events are only triggered when the mouse is pressed and moved beyond the threshold distance.
+
 ## 🎯 Application Integration
 
 Here's how to integrate with your Node.js application:
 
-### Basic Usage - Mouse and Keyboard
+### Basic Usage - Mouse, Keyboard, and Drag Events
 
 ```javascript
 const {
@@ -137,6 +189,7 @@ const {
   startKeyboardMonitor,
   onMouseEvent,
   onKeyboardEvent,
+  onDragEvent,
   stopMouseMonitor,
   stopKeyboardMonitor
 } = require('electron-dragfile-plugin');
@@ -146,7 +199,7 @@ async function setupInputTracking() {
     // Start monitoring
     await startMouseMonitor();
     await startKeyboardMonitor();
-    console.log('✅ Mouse and keyboard monitoring started');
+    console.log('✅ Mouse, keyboard, and drag monitoring started');
 
     // Register mouse callback
     const mouseCallbackId = await onMouseEvent((err, event) => {
@@ -171,7 +224,22 @@ async function setupInputTracking() {
       // Handle keyboard events here
     });
 
-    console.log('✅ Callbacks registered - Mouse ID:', mouseCallbackId, 'Keyboard ID:', keyboardCallbackId);
+    // Register drag callback
+    const dragCallbackId = await onDragEvent((err, event) => {
+      if (err) {
+        console.error('Drag event error:', err);
+        return;
+      }
+
+      const deltaX = event.x - event.startX;
+      const deltaY = event.y - event.startY;
+      const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+
+      console.log(`🔄 ${event.eventType} - moved ${distance.toFixed(1)}px from (${event.startX}, ${event.startY}) to (${event.x}, ${event.y})`);
+      // Handle drag events here
+    });
+
+    console.log('✅ Callbacks registered - Mouse ID:', mouseCallbackId, 'Keyboard ID:', keyboardCallbackId, 'Drag ID:', dragCallbackId);
 
     // Later, you can stop monitoring
     // await stopMouseMonitor();
@@ -245,7 +313,9 @@ The test script will start both mouse and keyboard monitoring and log all events
 3. Click different mouse buttons - you'll see click events with coordinates
 4. Press various keys on your keyboard - you'll see keydown and keyup events
 5. Try modifier keys (Shift, Ctrl, Alt) with other keys
-6. Press Ctrl+C to stop the test
+6. **Test drag events**: Press and hold mouse button, then move (more than 5px) - you'll see dragstart, dragmove, and dragend events
+7. Try simple clicks without moving - notice no drag events are triggered (smart detection)
+8. Press Ctrl+C to stop the test
 
 **Example Output:**
 ```
@@ -260,6 +330,23 @@ The test script will start both mouse and keyboard monitoring and log all events
 ⌨️ KEYUP: A (code: 65)
    Platform: macos
    Time: 14:30:26
+---
+🔄 DRAGSTART at (150.00, 200.00) - Left
+   Start position: (150.00, 200.00)
+   Platform: macos
+   Time: 14:30:30
+---
+🔄 DRAGMOVE at (160.50, 215.25) - Left
+   Start position: (150.00, 200.00)
+   Distance: (10.50, 15.25) total: 18.47px
+   Platform: macos
+   Time: 14:30:31
+---
+🔄 DRAGEND at (175.00, 230.00) - Left
+   Start position: (150.00, 200.00)
+   Distance: (25.00, 30.00) total: 39.05px
+   Platform: macos
+   Time: 14:30:32
 ---
 ⌨️ KEYDOWN: shift+A (code: 65)
    Platform: macos

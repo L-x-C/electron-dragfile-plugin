@@ -69,8 +69,38 @@ async function main() {
             console.log('---');
         });
 
-        console.log('✅ Mouse and keyboard event callbacks registered');
-        console.log('📝 Move your mouse, click, and press keys to see events!');
+        // Register drag callback
+        const dragCallbackId = await mousePlugin.onDragEvent((err, event) => {
+            if (err) {
+                console.error('Error in drag event callback:', err);
+                return;
+            }
+            if (!event) {
+                console.warn('Received a null drag event.');
+                return;
+            }
+
+            const buttonName = event.button === 0 ? 'None' :
+                event.button === 1 ? 'Left' :
+                event.button === 2 ? 'Middle' :
+                event.button === 3 ? 'Right' : `Button ${event.button}`;
+
+            const deltaX = event.x - event.startX;
+            const deltaY = event.y - event.startY;
+            const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+
+            console.log(`🔄 ${event.eventType.toUpperCase()} at (${event.x.toFixed(2)}, ${event.y.toFixed(2)}) - ${buttonName}`);
+            console.log(`   Start position: (${event.startX.toFixed(2)}, ${event.startY.toFixed(2)})`);
+            if (distance > 0.1) {
+                console.log(`   Distance: (${deltaX.toFixed(2)}, ${deltaY.toFixed(2)}) total: ${distance.toFixed(2)}px`);
+            }
+            console.log(`   Platform: ${event.platform}`);
+            console.log(`   Time: ${new Date(event.timestamp * 1000).toLocaleTimeString()}`);
+            console.log('---');
+        });
+
+        console.log('✅ Mouse, keyboard, and drag event callbacks registered');
+        console.log('📝 Move your mouse, click, press keys, and drag to see events!');
         console.log('   (Press Ctrl+C to stop)');
 
         // Handle cleanup
@@ -78,6 +108,7 @@ async function main() {
             console.log('\n⏹️ Stopping monitors...');
             await mousePlugin.removeMouseEventListener(mouseCallbackId);
             await mousePlugin.removeKeyboardEventListener(keyboardCallbackId);
+            await mousePlugin.removeDragEventListener(dragCallbackId);
             await mousePlugin.stopMouseMonitor();
             await mousePlugin.stopKeyboardMonitor();
             console.log('✅ Done');

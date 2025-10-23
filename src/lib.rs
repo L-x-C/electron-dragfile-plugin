@@ -32,13 +32,35 @@ pub struct KeyboardEvent {
     pub platform: String,
 }
 
+#[napi(object)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct DragEvent {
+    pub event_type: String,
+    pub x: f64,
+    pub y: f64,
+    pub start_x: f64,
+    pub start_y: f64,
+    pub button: i32,
+    pub timestamp: f64,
+    pub platform: String,
+}
+
 struct UnifiedMonitorState {
     is_monitoring: bool,
     mouse_callbacks: HashMap<u32, ThreadsafeFunction<MouseEvent, ErrorStrategy::CalleeHandled>>,
     keyboard_callbacks: HashMap<u32, ThreadsafeFunction<KeyboardEvent, ErrorStrategy::CalleeHandled>>,
+    drag_callbacks: HashMap<u32, ThreadsafeFunction<DragEvent, ErrorStrategy::CalleeHandled>>,
     next_callback_id: u32,
     shutdown_sender: Option<std::sync::mpsc::Sender<()>>,
     monitor_handle: Option<thread::JoinHandle<()>>,
+    // Drag state
+    is_dragging: bool,
+    drag_start_position: Option<(f64, f64)>,
+    drag_button: Option<i32>,
+    // Distance threshold detection
+    mouse_pressed: bool,
+    potential_drag_start: Option<(f64, f64)>,
+    drag_threshold: f64,
 }
 
 impl UnifiedMonitorState {
@@ -47,9 +69,18 @@ impl UnifiedMonitorState {
             is_monitoring: false,
             mouse_callbacks: HashMap::new(),
             keyboard_callbacks: HashMap::new(),
+            drag_callbacks: HashMap::new(),
             next_callback_id: 0,
             shutdown_sender: None,
             monitor_handle: None,
+            // Drag state
+            is_dragging: false,
+            drag_start_position: None,
+            drag_button: None,
+            // Distance threshold detection
+            mouse_pressed: false,
+            potential_drag_start: None,
+            drag_threshold: 5.0, // 5 pixels threshold
         }
     }
 }
@@ -299,6 +330,14 @@ fn trigger_keyboard_event(keyboard_event: KeyboardEvent) {
     }
 }
 
+fn trigger_drag_event(drag_event: DragEvent) {
+    if let Ok(state) = UNIFIED_STATE.lock() {
+        for callback in state.drag_callbacks.values() {
+            callback.call(Ok(drag_event.clone()), ThreadsafeFunctionCallMode::Blocking);
+        }
+    }
+}
+
 // 统一的事件监听函数，同时处理鼠标和键盘事件
 fn unified_event_listener() -> impl FnMut(Event) {
     move |event: Event| {
@@ -315,6 +354,122 @@ fn unified_event_listener() -> impl FnMut(Event) {
                     *pos = Some((mouse_event.x, mouse_event.y));
                 }
             }
+
+            // 拖拽状态检测逻辑
+            if let Ok(mut state) = UNIFIED_STATE.lock() {
+                match mouse_event.event_type.as_str() {
+                    "mousedown" => {
+                        // 记录鼠标按下状态，但不立即开始拖拽
+                        state.mouse_pressed = true;
+                        state.potential_drag_start = Some((mouse_event.x, mouse_event.y));
+                        state.drag_button = Some(mouse_event.button);
+                        // 不触发 dragstart 事件，等待移动距离超过阈值
+                    }
+                    "mousemove" => {
+                        if state.mouse_pressed {
+                            if let Some((start_x, start_y)) = state.potential_drag_start {
+                                // 计算移动距离
+                                let delta_x = mouse_event.x - start_x;
+                                let delta_y = mouse_event.y - start_y;
+                                let distance = (delta_x * delta_x + delta_y * delta_y).sqrt();
+
+                                if distance >= state.drag_threshold {
+                                    if !state.is_dragging {
+                                        // 首次超过阈值，开始拖拽
+                                        state.is_dragging = true;
+                                        state.drag_start_position = Some((start_x, start_y));
+
+                                        // 触发拖拽开始事件
+                                        let drag_event = DragEvent {
+                                            event_type: "dragstart".to_string(),
+                                            x: mouse_event.x,
+                                            y: mouse_event.y,
+                                            start_x: start_x,
+                                            start_y: start_y,
+                                            button: state.drag_button.unwrap_or(0),
+                                            timestamp: mouse_event.timestamp,
+                                            platform: mouse_event.platform.clone(),
+                                        };
+                                        drop(state); // 释放锁
+                                        trigger_drag_event(drag_event);
+                                    } else {
+                                        // 已经在拖拽中，触发拖拽移动事件
+                                        let drag_event = DragEvent {
+                                            event_type: "dragmove".to_string(),
+                                            x: mouse_event.x,
+                                            y: mouse_event.y,
+                                            start_x,
+                                            start_y,
+                                            button: state.drag_button.unwrap_or(0),
+                                            timestamp: mouse_event.timestamp,
+                                            platform: mouse_event.platform.clone(),
+                                        };
+                                        drop(state); // 释放锁
+                                        trigger_drag_event(drag_event);
+                                    }
+                                } else {
+                                    // 距离未超过阈值，不触发事件
+                                    drop(state); // 释放锁
+                                }
+                            } else {
+                                drop(state); // 释放锁
+                            }
+                        } else {
+                            drop(state); // 释放锁
+                        }
+                    }
+                    "mouseup" => {
+                        if state.mouse_pressed {
+                            if state.is_dragging {
+                                // 正在拖拽中，触发拖拽结束事件
+                                if let Some((start_x, start_y)) = state.drag_start_position {
+                                    let drag_event = DragEvent {
+                                        event_type: "dragend".to_string(),
+                                        x: mouse_event.x,
+                                        y: mouse_event.y,
+                                        start_x,
+                                        start_y,
+                                        button: state.drag_button.unwrap_or(0),
+                                        timestamp: mouse_event.timestamp,
+                                        platform: mouse_event.platform.clone(),
+                                    };
+                                    // 重置所有状态
+                                    state.mouse_pressed = false;
+                                    state.is_dragging = false;
+                                    state.potential_drag_start = None;
+                                    state.drag_start_position = None;
+                                    state.drag_button = None;
+                                    drop(state); // 释放锁
+                                    trigger_drag_event(drag_event);
+                                } else {
+                                    // 重置所有状态
+                                    state.mouse_pressed = false;
+                                    state.is_dragging = false;
+                                    state.potential_drag_start = None;
+                                    state.drag_start_position = None;
+                                    state.drag_button = None;
+                                    drop(state); // 释放锁
+                                }
+                            } else {
+                                // 无论是否开始拖拽，都重置所有状态
+                                state.mouse_pressed = false;
+                                state.is_dragging = false;
+                                state.potential_drag_start = None;
+                                state.drag_start_position = None;
+                                state.drag_button = None;
+                                drop(state); // 释放锁
+                            }
+                        } else {
+                            drop(state); // 释放锁
+                        }
+                    }
+                    _ => {
+                        // 其他鼠标事件，不处理拖拽
+                        drop(state); // 释放锁
+                    }
+                }
+            }
+
             trigger_mouse_event(mouse_event);
         }
         // 如果不是鼠标事件，尝试作为键盘事件处理
@@ -376,6 +531,23 @@ pub fn on_keyboard_event(callback: JsFunction) -> Result<u32> {
 pub fn remove_keyboard_event_listener(id: u32) -> Result<bool> {
     let mut state = UNIFIED_STATE.lock().map_err(|_| Error::new(Status::GenericFailure, "Failed to acquire unified monitor state lock"))?;
     Ok(state.keyboard_callbacks.remove(&id).is_some())
+}
+
+// Drag API functions
+#[napi]
+pub fn on_drag_event(callback: JsFunction) -> Result<u32> {
+    let mut state = UNIFIED_STATE.lock().map_err(|_| Error::new(Status::GenericFailure, "Failed to acquire unified monitor state lock"))?;
+    let id = state.next_callback_id + 1;
+    state.next_callback_id = id;
+    let tsfn: ThreadsafeFunction<DragEvent, ErrorStrategy::CalleeHandled> = callback.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
+    state.drag_callbacks.insert(id, tsfn);
+    Ok(id)
+}
+
+#[napi]
+pub fn remove_drag_event_listener(id: u32) -> Result<bool> {
+    let mut state = UNIFIED_STATE.lock().map_err(|_| Error::new(Status::GenericFailure, "Failed to acquire unified monitor state lock"))?;
+    Ok(state.drag_callbacks.remove(&id).is_some())
 }
 
 // Unified monitoring functions
