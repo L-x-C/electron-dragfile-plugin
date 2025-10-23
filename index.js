@@ -310,7 +310,7 @@ if (!nativeBinding) {
   throw new Error(`Failed to load native binding`)
 }
 
-const { startMouseMonitor, stopMouseMonitor, onMouseEvent, removeMouseEventListener, startKeyboardMonitor, stopKeyboardMonitor, onKeyboardEvent, removeKeyboardEventListener, isMonitoring, startFileDragMonitor, stopFileDragMonitor, onFileDragEvent, removeFileDragEventListener, isFileDragMonitoring } = nativeBinding
+const { startMouseMonitor, stopMouseMonitor, onMouseEvent, removeMouseEventListener, startKeyboardMonitor, stopKeyboardMonitor, onKeyboardEvent, removeKeyboardEventListener, isMonitoring } = nativeBinding
 
 module.exports.startMouseMonitor = startMouseMonitor
 module.exports.stopMouseMonitor = stopMouseMonitor
@@ -321,8 +321,3 @@ module.exports.stopKeyboardMonitor = stopKeyboardMonitor
 module.exports.onKeyboardEvent = onKeyboardEvent
 module.exports.removeKeyboardEventListener = removeKeyboardEventListener
 module.exports.isMonitoring = isMonitoring
-module.exports.startFileDragMonitor = startFileDragMonitor
-module.exports.stopFileDragMonitor = stopFileDragMonitor
-module.exports.onFileDragEvent = onFileDragEvent
-module.exports.removeFileDragEventListener = removeFileDragEventListener
-module.exports.isFileDragMonitoring = isFileDragMonitoring
