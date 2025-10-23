@@ -1,12 +1,14 @@
 # electron-dragfile-plugin
 
-A high-performance native Node.js addon built with Rust and napi-rs that monitors system-wide mouse events. Perfect for applications that need to track mouse movements and clicks across the entire system.
+A high-performance native Node.js addon built with Rust and napi-rs that monitors system-wide mouse and keyboard events. Perfect for applications that need to track mouse movements, clicks, and keyboard inputs across the entire system.
 
 ## ✨ Features
 
 - 🚀 **High Performance**: Built with Rust for maximum performance and low overhead
 - 🌍 **Cross-Platform**: Supports macOS, Windows, and Linux
-- 📡 **System-Wide Detection**: Monitors mouse events across the entire system, not just your app
+- 📡 **System-Wide Detection**: Monitors mouse and keyboard events across the entire system, not just your app
+- ⌨️ **Full Keyboard Support**: Detects key presses, releases, and modifier keys
+- 🖱️ **Complete Mouse Tracking**: Tracks mouse movements, clicks, and wheel events
 - 🔧 **Easy to Use**: Simple JavaScript API with TypeScript support
 - 📦 **NPM Ready**: Published to npm for easy installation
 - 🎯 **Universal**: Works with any Node.js application, not just Electron
@@ -20,10 +22,16 @@ npm install electron-dragfile-plugin
 ## 🚀 Quick Start
 
 ```javascript
-const { startMouseMonitor, onMouseEvent } = require('electron-dragfile-plugin');
+const {
+  startMouseMonitor,
+  startKeyboardMonitor,
+  onMouseEvent,
+  onKeyboardEvent
+} = require('electron-dragfile-plugin');
 
-// Start monitoring mouse events
+// Start monitoring mouse and keyboard events
 await startMouseMonitor();
+await startKeyboardMonitor();
 
 // Listen for mouse events
 onMouseEvent((err, event) => {
@@ -41,11 +49,24 @@ onMouseEvent((err, event) => {
   console.log(`   Platform: ${event.platform}`);
   console.log(`   Time: ${new Date(event.timestamp * 1000).toLocaleTimeString()}`);
 });
+
+// Listen for keyboard events
+onKeyboardEvent((err, event) => {
+  if (err) {
+    console.error('Error:', err);
+    return;
+  }
+
+  const modifiers = event.modifiers.length > 0 ? event.modifiers.join('+') + '+' : '';
+  console.log(`⌨️ ${event.eventType.toUpperCase()}: ${modifiers}${event.keyName} (code: ${event.keyCode})`);
+  console.log(`   Platform: ${event.platform}`);
+  console.log(`   Time: ${new Date(event.timestamp * 1000).toLocaleTimeString()}`);
+});
 ```
 
 ## 📖 API Reference
 
-### Functions
+### Mouse Event Functions
 
 #### `startMouseMonitor(): Promise<void>`
 Start monitoring mouse events globally.
@@ -58,6 +79,22 @@ Register a callback for mouse events. Returns a callback ID.
 
 #### `removeMouseEventListener(callbackId: number): Promise<boolean>`
 Remove a mouse event callback using the returned ID.
+
+### Keyboard Event Functions
+
+#### `startKeyboardMonitor(): Promise<void>`
+Start monitoring keyboard events globally.
+
+#### `stopKeyboardMonitor(): Promise<void>`
+Stop monitoring keyboard events.
+
+#### `onKeyboardEvent(callback: Function): Promise<number>`
+Register a callback for keyboard events. Returns a callback ID.
+
+#### `removeKeyboardEventListener(callbackId: number): Promise<boolean>`
+Remove a keyboard event callback using the returned ID.
+
+### Status Functions
 
 #### `isMonitoring(): Promise<boolean>`
 Check if mouse monitoring is currently active.
@@ -75,23 +112,44 @@ interface MouseEvent {
 }
 ```
 
+### KeyboardEvent Interface
+
+```typescript
+interface KeyboardEvent {
+  eventType: string;      // Event type: "keydown", "keyup"
+  keyCode: number;        // Keyboard scan code
+  keyName: string;        // Human-readable key name: "A", "F1", "Shift", etc.
+  modifiers: string[];    // Active modifier keys: ["shift"], ["control", "alt"]
+  timestamp: number;      // Unix timestamp of the event
+  platform: string;      // Platform information: "macos", "windows", "linux"
+}
+```
+
 ## 🎯 Application Integration
 
 Here's how to integrate with your Node.js application:
 
-### Basic Usage
+### Basic Usage - Mouse and Keyboard
 
 ```javascript
-const { startMouseMonitor, onMouseEvent, stopMouseMonitor } = require('electron-dragfile-plugin');
+const {
+  startMouseMonitor,
+  startKeyboardMonitor,
+  onMouseEvent,
+  onKeyboardEvent,
+  stopMouseMonitor,
+  stopKeyboardMonitor
+} = require('electron-dragfile-plugin');
 
-async function setupMouseTracking() {
+async function setupInputTracking() {
   try {
     // Start monitoring
     await startMouseMonitor();
-    console.log('✅ Mouse monitoring started');
+    await startKeyboardMonitor();
+    console.log('✅ Mouse and keyboard monitoring started');
 
-    // Register callback
-    const callbackId = await onMouseEvent((err, event) => {
+    // Register mouse callback
+    const mouseCallbackId = await onMouseEvent((err, event) => {
       if (err) {
         console.error('Mouse event error:', err);
         return;
@@ -101,17 +159,30 @@ async function setupMouseTracking() {
       // Handle mouse events here
     });
 
-    console.log('✅ Callback registered with ID:', callbackId);
+    // Register keyboard callback
+    const keyboardCallbackId = await onKeyboardEvent((err, event) => {
+      if (err) {
+        console.error('Keyboard event error:', err);
+        return;
+      }
+
+      const modifiers = event.modifiers.length > 0 ? event.modifiers.join('+') + '+' : '';
+      console.log(`⌨️ ${modifiers}${event.keyName} (${event.eventType})`);
+      // Handle keyboard events here
+    });
+
+    console.log('✅ Callbacks registered - Mouse ID:', mouseCallbackId, 'Keyboard ID:', keyboardCallbackId);
 
     // Later, you can stop monitoring
     // await stopMouseMonitor();
+    // await stopKeyboardMonitor();
 
   } catch (error) {
-    console.error('❌ Failed to setup mouse monitoring:', error);
+    console.error('❌ Failed to setup input monitoring:', error);
   }
 }
 
-setupMouseTracking();
+setupInputTracking();
 ```
 
 ### Error Handling
@@ -166,7 +237,35 @@ npm run build
 node test.js
 ```
 
-The test script will start mouse monitoring and log all mouse events to the console.
+The test script will start both mouse and keyboard monitoring and log all events to the console.
+
+**Test Instructions:**
+1. Run `node test.js`
+2. Move your mouse around - you'll see mouse movement events
+3. Click different mouse buttons - you'll see click events with coordinates
+4. Press various keys on your keyboard - you'll see keydown and keyup events
+5. Try modifier keys (Shift, Ctrl, Alt) with other keys
+6. Press Ctrl+C to stop the test
+
+**Example Output:**
+```
+🖱️ MOUSEMOVE at (245.67, 189.23) - None
+   Platform: macos
+   Time: 14:30:25
+---
+⌨️ KEYDOWN: A (code: 65)
+   Platform: macos
+   Time: 14:30:26
+---
+⌨️ KEYUP: A (code: 65)
+   Platform: macos
+   Time: 14:30:26
+---
+⌨️ KEYDOWN: shift+A (code: 65)
+   Platform: macos
+   Time: 14:30:30
+---
+```
 
 ## 🔧 Platform Requirements
 
@@ -248,7 +347,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## 🙏 Acknowledgments
 
 - Built with [napi-rs](https://napi.rs/) for high-performance native addons
-- Uses [rdev](https://github.com/narsil/rdev) for cross-platform mouse event monitoring
+- Uses [rdev](https://github.com/narsil/rdev) for cross-platform mouse and keyboard event monitoring
 - Platform-specific APIs for system integration
 
 ## 📞 Support
