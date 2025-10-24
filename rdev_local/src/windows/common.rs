@@ -1,6 +1,4 @@
 use crate::rdev::{Button, EventType};
-use crate::windows::keyboard::Keyboard;
-use crate::windows::keycodes::key_from_code;
 use lazy_static::lazy_static;
 use std::convert::TryInto;
 use std::os::raw::{c_int, c_short};
@@ -61,16 +59,6 @@ pub unsafe fn get_button_code(lpdata: LPARAM) -> WORD {
 pub unsafe fn convert(param: WPARAM, lpdata: LPARAM) -> Option<EventType> {
     unsafe {
         match param.try_into() {
-            Ok(WM_KEYDOWN) | Ok(WM_SYSKEYDOWN) => {
-                let code = get_code(lpdata);
-                let key = key_from_code(code as u16);
-                Some(EventType::KeyPress(key))
-            }
-            Ok(WM_KEYUP) | Ok(WM_SYSKEYUP) => {
-                let code = get_code(lpdata);
-                let key = key_from_code(code as u16);
-                Some(EventType::KeyRelease(key))
-            }
             Ok(WM_LBUTTONDOWN) => Some(EventType::ButtonPress(Button::Left)),
             Ok(WM_LBUTTONUP) => Some(EventType::ButtonRelease(Button::Left)),
             Ok(WM_MBUTTONDOWN) => Some(EventType::ButtonPress(Button::Middle)),
@@ -114,20 +102,6 @@ pub unsafe fn convert(param: WPARAM, lpdata: LPARAM) -> Option<EventType> {
 type RawCallback = unsafe extern "system" fn(code: c_int, param: WPARAM, lpdata: LPARAM) -> LRESULT;
 pub enum HookError {
     Mouse(DWORD),
-    Key(DWORD),
-}
-
-pub unsafe fn set_key_hook(callback: RawCallback) -> Result<(), HookError> {
-    unsafe {
-        let hook = SetWindowsHookExA(WH_KEYBOARD_LL, Some(callback), null_mut(), 0);
-
-        if hook.is_null() {
-            let error = GetLastError();
-            return Err(HookError::Key(error));
-        }
-        HOOK = hook;
-        Ok(())
-    }
 }
 
 pub unsafe fn set_mouse_hook(callback: RawCallback) -> Result<(), HookError> {

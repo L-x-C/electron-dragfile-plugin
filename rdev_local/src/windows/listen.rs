@@ -1,8 +1,8 @@
 // This file has been emptied as part of keyboard functionality removal
 // This file previously contained Windows keyboard event listening logic
 
-use crate::rdev::{Event, EventType, ListenError};
-use crate::windows::common::{HOOK, HookError, convert, set_key_hook, set_mouse_hook};
+use crate::rdev::{Event, ListenError};
+use crate::windows::common::{HOOK, HookError, convert, set_mouse_hook};
 use std::os::raw::c_int;
 use std::ptr::null_mut;
 use std::time::SystemTime;
@@ -46,8 +46,7 @@ where
 {
     unsafe {
         GLOBAL_CALLBACK = Some(Box::new(callback));
-        set_key_hook()?;
-        set_mouse_hook()?;
+        set_mouse_hook(low_level_mouse_proc);
         let mut msg = std::mem::zeroed();
         while GetMessageA(&mut msg, null_mut(), 0, 0) != 0 {
             // Process message
