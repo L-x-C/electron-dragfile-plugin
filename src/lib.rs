@@ -78,6 +78,15 @@ lazy_static::lazy_static! {
     static ref LAST_POSITION: Arc<Mutex<Option<(f64, f64)>>> = Arc::new(Mutex::new(None));
 }
 
+// 重置拖拽状态的辅助函数
+fn reset_drag_state(state: &mut std::sync::MutexGuard<'_, UnifiedMonitorState>) {
+    state.mouse_pressed = false;
+    state.is_dragging = false;
+    state.potential_drag_start = None;
+    state.drag_start_position = None;
+    state.drag_button = None;
+}
+
 fn convert_rdev_mouse_event(event: &Event) -> Option<MouseEvent> {
     let platform = if cfg!(target_os = "macos") {
         "macos"
@@ -254,6 +263,7 @@ fn unified_event_listener() -> impl FnMut(Event) {
                         if state.mouse_pressed {
                             if state.is_dragging {
                                 // 正在拖拽中，触发拖拽结束事件
+                                // is_dragging 为 true 时，drag_start_position 应该总是有值
                                 if let Some((start_x, start_y)) = state.drag_start_position {
                                     let drag_event = DragEvent {
                                         event_type: "dragend".to_string(),
@@ -265,30 +275,13 @@ fn unified_event_listener() -> impl FnMut(Event) {
                                         timestamp: mouse_event.timestamp,
                                         platform: mouse_event.platform.clone(),
                                     };
-                                    // 重置所有状态
-                                    state.mouse_pressed = false;
-                                    state.is_dragging = false;
-                                    state.potential_drag_start = None;
-                                    state.drag_start_position = None;
-                                    state.drag_button = None;
+                                    reset_drag_state(&mut state);
                                     drop(state); // 释放锁
                                     trigger_drag_event(drag_event);
-                                } else {
-                                    // 重置所有状态
-                                    state.mouse_pressed = false;
-                                    state.is_dragging = false;
-                                    state.potential_drag_start = None;
-                                    state.drag_start_position = None;
-                                    state.drag_button = None;
-                                    drop(state); // 释放锁
                                 }
                             } else {
                                 // 无论是否开始拖拽，都重置所有状态
-                                state.mouse_pressed = false;
-                                state.is_dragging = false;
-                                state.potential_drag_start = None;
-                                state.drag_start_position = None;
-                                state.drag_button = None;
+                                reset_drag_state(&mut state);
                                 drop(state); // 释放锁
                             }
                         } else {
