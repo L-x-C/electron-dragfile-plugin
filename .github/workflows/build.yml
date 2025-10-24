@@ -30,6 +30,10 @@ jobs:
             target: aarch64-apple-darwin
             artifact: electron-dragfile-plugin.darwin-arm64.node
             platform: darwin
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact: electron-dragfile-plugin.linux-x64-gnu.node
+            platform: linux
 
     runs-on: ${{ matrix.os }}
 
@@ -82,12 +86,19 @@ jobs:
         path: ${{ matrix.artifact }}
         retention-days: 30
 
-    - name: Build logs
-      if: failure()
+    - name: Build logs (Unix)
+      if: failure() && matrix.os != 'windows-latest'
       run: |
         echo "Build failed for ${{ matrix.os }} (${{ matrix.target }})"
         ls -la target/ || echo "No target directory"
         ls -la *.node || echo "No .node files"
+
+    - name: Build logs (Windows)
+      if: failure() && matrix.os == 'windows-latest'
+      run: |
+        echo "Build failed for ${{ matrix.os }} (${{ matrix.target }})"
+        Get-ChildItem -Force target/ -ErrorAction SilentlyContinue || echo "No target directory"
+        Get-ChildItem -Force *.node -ErrorAction SilentlyContinue || echo "No .node files"
 
   release:
     needs: build
@@ -114,7 +125,7 @@ jobs:
     - name: List artifacts
       run: |
         echo "📦 Downloaded artifacts:"
-        ls -la artifacts/
+        ls -la artifacts/ || echo "No artifacts directory"
 
     - name: Install dependencies
       run: npm install
@@ -138,7 +149,7 @@ jobs:
 
         # Copy all platform binaries to current directory
         cp artifacts/*.node ./
-        ls -la *.node
+        ls -la *.node || echo "No .node files found"
 
     - name: Create platform packages
       run: |
@@ -204,9 +215,29 @@ jobs:
           echo "✅ macOS ARM64 package created"
         fi
 
+        # Linux x64
+        if [ -f "electron-dragfile-plugin.linux-x64-gnu.node" ]; then
+          mkdir -p npm/linux-x64-gnu
+          cp electron-dragfile-plugin.linux-x64-gnu.node npm/linux-x64-gnu/
+
+          # Create package.json for Linux x64
+          echo '{
+            "name": "electron-dragfile-plugin-linux-x64-gnu",
+            "version": "'"$VERSION"'",
+            "description": "Native addon for detecting file drag events in Electron applications",
+            "main": "electron-dragfile-plugin.linux-x64-gnu.node",
+            "os": ["linux"],
+            "cpu": ["x64"],
+            "engines": {
+              "node": ">= 14"
+            }
+          }' > npm/linux-x64-gnu/package.json
+          echo "✅ Linux x64 package created"
+        fi
+
         echo "📋 Package structure:"
-        find npm -name "*.node" -exec ls -la {} \;
-        find npm -name "package.json" -exec echo "📄 {}" \;
+        find npm -name "*.node" -exec ls -la {} \; 2>/dev/null || echo "No .node files found"
+        find npm -name "package.json" -exec echo "📄 {}" \; 2>/dev/null || echo "No package.json files found"
 
     - name: Prepare for publishing
       run: |
@@ -217,7 +248,7 @@ jobs:
         ls -la
 
         echo "📋 Files to be published:"
-        ls -la index.js README.md LICENSE package.json
+        ls -la index.js README.md LICENSE package.json 2>/dev/null || echo "Some required files missing"
 
         # Check for TypeScript definitions
         if [ -f "index.d.ts" ]; then
