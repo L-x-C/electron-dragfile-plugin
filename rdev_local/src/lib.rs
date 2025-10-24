@@ -219,28 +219,21 @@
 //! Serde if you install this library with the `serialize` feature.
 mod rdev;
 pub use crate::rdev::{
-    Button, DisplayError, Event, EventType, GrabCallback, GrabError, Key, KeyboardState,
-    ListenError, SimulateError,
+    Button, DisplayError, Event, EventType, GrabCallback, GrabError, ListenError, SimulateError,
 };
 
 #[cfg(target_os = "macos")]
 mod macos;
-#[cfg(target_os = "macos")]
-pub use crate::macos::{Keyboard, set_is_main_thread};
 #[cfg(target_os = "macos")]
 use crate::macos::{display_size as _display_size, listen as _listen, simulate as _simulate};
 
 #[cfg(all(target_family = "unix", not(target_os = "macos")))]
 mod linux;
 #[cfg(all(target_family = "unix", not(target_os = "macos")))]
-pub use crate::linux::Keyboard;
-#[cfg(all(target_family = "unix", not(target_os = "macos")))]
 use crate::linux::{display_size as _display_size, listen as _listen, simulate as _simulate};
 
 #[cfg(target_os = "windows")]
 mod windows;
-#[cfg(target_os = "windows")]
-pub use crate::windows::Keyboard;
 #[cfg(target_os = "windows")]
 use crate::windows::{display_size as _display_size, listen as _listen, simulate as _simulate};
 

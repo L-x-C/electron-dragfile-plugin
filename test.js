@@ -20,15 +20,11 @@ try {
 
 async function main() {
     try {
-        console.log('🚀 Starting mouse and keyboard event monitoring...');
+        console.log('🚀 Starting mouse event monitoring...');
 
         // Start mouse monitoring
         await mousePlugin.startMouseMonitor();
         console.log('✅ Mouse monitoring started');
-
-        // Start keyboard monitoring
-        await mousePlugin.startKeyboardMonitor();
-        console.log('✅ Keyboard monitoring started');
 
         // Register mouse callback
         const mouseCallbackId = await mousePlugin.onMouseEvent((err, event) => {
@@ -46,24 +42,6 @@ async function main() {
                 event.button === 3 ? 'Right' : `Button ${event.button}`;
 
             console.log(`🖱️ ${event.eventType.toUpperCase()} at (${event.x.toFixed(2)}, ${event.y.toFixed(2)}) - ${buttonName}`);
-            console.log(`   Platform: ${event.platform}`);
-            console.log(`   Time: ${new Date(event.timestamp * 1000).toLocaleTimeString()}`);
-            console.log('---');
-        });
-
-        // Register keyboard callback
-        const keyboardCallbackId = await mousePlugin.onKeyboardEvent((err, event) => {
-            if (err) {
-                console.error('Error in keyboard event callback:', err);
-                return;
-            }
-            if (!event) {
-                console.warn('Received a null keyboard event.');
-                return;
-            }
-
-            const modifiers = event.modifiers.length > 0 ? event.modifiers.join('+') + '+' : '';
-            console.log(`⌨️ ${event.eventType.toUpperCase()}: ${modifiers}${event.keyName} (code: ${event.keyCode})`);
             console.log(`   Platform: ${event.platform}`);
             console.log(`   Time: ${new Date(event.timestamp * 1000).toLocaleTimeString()}`);
             console.log('---');
@@ -99,18 +77,16 @@ async function main() {
             console.log('---');
         });
 
-        console.log('✅ Mouse, keyboard, and drag event callbacks registered');
-        console.log('📝 Move your mouse, click, press keys, and drag to see events!');
+        console.log('✅ Mouse and drag event callbacks registered');
+        console.log('📝 Move your mouse, click, and drag to see events!');
         console.log('   (Press Ctrl+C to stop)');
 
         // Handle cleanup
         process.on('SIGINT', async () => {
             console.log('\n⏹️ Stopping monitors...');
             await mousePlugin.removeMouseEventListener(mouseCallbackId);
-            await mousePlugin.removeKeyboardEventListener(keyboardCallbackId);
             await mousePlugin.removeDragEventListener(dragCallbackId);
             await mousePlugin.stopMouseMonitor();
-            await mousePlugin.stopKeyboardMonitor();
             console.log('✅ Done');
             process.exit(0);
         });

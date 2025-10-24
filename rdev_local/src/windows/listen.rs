@@ -1,5 +1,8 @@
+// This file has been emptied as part of keyboard functionality removal
+// This file previously contained Windows keyboard event listening logic
+
 use crate::rdev::{Event, EventType, ListenError};
-use crate::windows::common::{HOOK, HookError, KEYBOARD, convert, set_key_hook, set_mouse_hook};
+use crate::windows::common::{HOOK, HookError, convert, set_key_hook, set_mouse_hook};
 use std::os::raw::c_int;
 use std::ptr::null_mut;
 use std::time::SystemTime;
@@ -22,17 +25,10 @@ unsafe extern "system" fn raw_callback(code: c_int, param: WPARAM, lpdata: LPARA
         if code == HC_ACTION {
             let opt = convert(param, lpdata);
             if let Some(event_type) = opt {
-                let name = match &event_type {
-                    EventType::KeyPress(_key) => match (*KEYBOARD).lock() {
-                        Ok(mut keyboard) => keyboard.get_name(lpdata),
-                        Err(_) => None,
-                    },
-                    _ => None,
-                };
                 let event = Event {
                     event_type,
                     time: SystemTime::now(),
-                    name,
+                    name: None,
                 };
                 let ptr = &raw mut GLOBAL_CALLBACK;
                 if let Some(callback) = &mut *ptr {
@@ -50,10 +46,12 @@ where
 {
     unsafe {
         GLOBAL_CALLBACK = Some(Box::new(callback));
-        set_key_hook(raw_callback)?;
-        set_mouse_hook(raw_callback)?;
-
-        GetMessageA(null_mut(), null_mut(), 0, 0);
+        set_key_hook()?;
+        set_mouse_hook()?;
+        let mut msg = std::mem::zeroed();
+        while GetMessageA(&mut msg, null_mut(), 0, 0) != 0 {
+            // Process message
+        }
     }
     Ok(())
 }
