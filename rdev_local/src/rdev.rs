@@ -22,15 +22,11 @@ pub enum ListenError {
     /// Linux
     MissingDisplayError,
     /// Linux
-    KeyboardError,
-    /// Linux
     RecordContextEnablingError,
     /// Linux
     RecordContextError,
     /// Linux
     XRecordExtensionError,
-    /// Windows
-    KeyHookError(u32),
     /// Windows
     MouseHookError(u32),
 }

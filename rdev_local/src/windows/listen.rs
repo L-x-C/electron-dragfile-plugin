@@ -15,7 +15,6 @@ impl From<HookError> for ListenError {
     fn from(error: HookError) -> Self {
         match error {
             HookError::Mouse(code) => ListenError::MouseHookError(code),
-            HookError::Key(code) => ListenError::KeyHookError(code),
         }
     }
 }
@@ -46,7 +45,7 @@ where
 {
     unsafe {
         GLOBAL_CALLBACK = Some(Box::new(callback));
-        set_mouse_hook(low_level_mouse_proc);
+        set_mouse_hook(raw_callback);
         let mut msg = std::mem::zeroed();
         while GetMessageA(&mut msg, null_mut(), 0, 0) != 0 {
             // Process message

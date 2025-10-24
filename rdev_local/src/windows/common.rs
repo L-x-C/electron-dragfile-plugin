@@ -9,31 +9,16 @@ use winapi::shared::ntdef::LONG;
 use winapi::shared::windef::HHOOK;
 use winapi::um::errhandlingapi::GetLastError;
 use winapi::um::winuser::{
-    KBDLLHOOKSTRUCT, MSLLHOOKSTRUCT, SetWindowsHookExA, WH_KEYBOARD_LL, WH_MOUSE_LL, WHEEL_DELTA,
-    WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP,
-    WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SYSKEYDOWN,
-    WM_SYSKEYUP, WM_XBUTTONDOWN, WM_XBUTTONUP,
+    SetWindowsHookExA, WH_MOUSE_LL, WHEEL_DELTA,
+    WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP,
+    WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_RBUTTONDOWN, WM_RBUTTONUP,
+    WM_XBUTTONDOWN, WM_XBUTTONUP,
 };
 pub const TRUE: i32 = 1;
 pub const FALSE: i32 = 0;
 
 pub static mut HOOK: HHOOK = null_mut();
-lazy_static! {
-    pub(crate) static ref KEYBOARD: Mutex<Keyboard> = Mutex::new(Keyboard::new().unwrap());
-}
 
-pub unsafe fn get_code(lpdata: LPARAM) -> DWORD {
-    unsafe {
-        let kb = *(lpdata as *const KBDLLHOOKSTRUCT);
-        kb.vkCode
-    }
-}
-pub unsafe fn get_scan_code(lpdata: LPARAM) -> DWORD {
-    unsafe {
-        let kb = *(lpdata as *const KBDLLHOOKSTRUCT);
-        kb.scanCode
-    }
-}
 pub unsafe fn get_point(lpdata: LPARAM) -> (LONG, LONG) {
     unsafe {
         let mouse = *(lpdata as *const MSLLHOOKSTRUCT);
