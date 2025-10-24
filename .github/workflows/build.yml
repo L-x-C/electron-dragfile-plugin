@@ -30,10 +30,6 @@ jobs:
             target: aarch64-apple-darwin
             artifact: electron-dragfile-plugin.darwin-arm64.node
             platform: darwin
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            artifact: electron-dragfile-plugin.linux-x64-gnu.node
-            platform: linux
 
     runs-on: ${{ matrix.os }}
 
@@ -213,26 +209,6 @@ jobs:
             }
           }' > npm/darwin-arm64/package.json
           echo "✅ macOS ARM64 package created"
-        fi
-
-        # Linux x64
-        if [ -f "electron-dragfile-plugin.linux-x64-gnu.node" ]; then
-          mkdir -p npm/linux-x64-gnu
-          cp electron-dragfile-plugin.linux-x64-gnu.node npm/linux-x64-gnu/
-
-          # Create package.json for Linux x64
-          echo '{
-            "name": "electron-dragfile-plugin-linux-x64-gnu",
-            "version": "'"$VERSION"'",
-            "description": "Native addon for detecting file drag events in Electron applications",
-            "main": "electron-dragfile-plugin.linux-x64-gnu.node",
-            "os": ["linux"],
-            "cpu": ["x64"],
-            "engines": {
-              "node": ">= 14"
-            }
-          }' > npm/linux-x64-gnu/package.json
-          echo "✅ Linux x64 package created"
         fi
 
         echo "📋 Package structure:"
