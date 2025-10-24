@@ -1,15 +1,13 @@
 use crate::rdev::{Button, EventType};
-use lazy_static::lazy_static;
 use std::convert::TryInto;
 use std::os::raw::{c_int, c_short};
 use std::ptr::null_mut;
-use std::sync::Mutex;
 use winapi::shared::minwindef::{DWORD, HIWORD, LPARAM, LRESULT, WORD, WPARAM};
 use winapi::shared::ntdef::LONG;
 use winapi::shared::windef::HHOOK;
 use winapi::um::errhandlingapi::GetLastError;
 use winapi::um::winuser::{
-    SetWindowsHookExA, WH_MOUSE_LL, WHEEL_DELTA,
+    MSLLHOOKSTRUCT, SetWindowsHookExA, WH_MOUSE_LL, WHEEL_DELTA,
     WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP,
     WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_RBUTTONDOWN, WM_RBUTTONUP,
     WM_XBUTTONDOWN, WM_XBUTTONUP,
